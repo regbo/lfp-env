@@ -211,6 +211,7 @@ if (-not (Is-Exec "pixi")) {
 }
 
 Ensure-Installed -Tool "python"
+Ensure-Installed -Tool "uv"
 Ensure-Installed -Tool "git"
 
 if (@($Tools).Count -gt 0) {

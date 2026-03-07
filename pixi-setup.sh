@@ -194,6 +194,7 @@ ensure_installed(){
 }
 
 ensure_installed python
+ensure_installed uv
 ensure_installed git
 
 # Install additional tools passed as arguments

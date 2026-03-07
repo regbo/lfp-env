@@ -7,13 +7,13 @@ Lightweight bootstrap scripts to get `pixi` installed quickly and ensure a few c
 MacOS/Linux install:
 
 ```sh
-eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-pixi/v0.1.0/pixi-setup.sh | sh)"
+eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-pixi/v0.1.1/pixi-setup.sh | sh)"
 ```
 
 Windows install:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm -useb https://raw.githubusercontent.com/regbo/lfp-pixi/v0.1.0/pixi-setup.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm -useb https://raw.githubusercontent.com/regbo/lfp-pixi/v0.1.1/pixi-setup.ps1 | iex"
 ```
 
 ## What the scripts do
@@ -49,13 +49,13 @@ This repo includes:
 Run from GitHub and apply exported environment changes in your current shell:
 
 ```sh
-eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-pixi/v0.1.0/pixi-setup.sh | sh)"
+eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-pixi/v0.1.1/pixi-setup.sh | sh)"
 ```
 
 Install extra tools at the same time:
 
 ```sh
-eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-pixi/v0.1.0/pixi-setup.sh | sh -s -- jq yq)"
+eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-pixi/v0.1.1/pixi-setup.sh | sh -s -- jq yq)"
 ```
 
 Notes:
@@ -68,20 +68,20 @@ Notes:
 Run from GitHub using `irm` and `iex`:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm -useb https://raw.githubusercontent.com/regbo/lfp-pixi/v0.1.0/pixi-setup.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm -useb https://raw.githubusercontent.com/regbo/lfp-pixi/v0.1.1/pixi-setup.ps1 | iex"
 ```
 
 Install extra tools:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "& ([scriptblock]::Create((irm -useb 'https://raw.githubusercontent.com/regbo/lfp-pixi/v0.1.0/pixi-setup.ps1'))) jq yq"
+powershell -ExecutionPolicy Bypass -c "& ([scriptblock]::Create((irm -useb 'https://raw.githubusercontent.com/regbo/lfp-pixi/v0.1.1/pixi-setup.ps1'))) jq yq"
 ```
 
 By default, when environment values are newly resolved, the script persists them to the current user environment.  
 To keep changes only in the current PowerShell session:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "& ([scriptblock]::Create((irm -useb 'https://raw.githubusercontent.com/regbo/lfp-pixi/v0.1.0/pixi-setup.ps1'))) -NoPersistUserEnv"
+powershell -ExecutionPolicy Bypass -c "& ([scriptblock]::Create((irm -useb 'https://raw.githubusercontent.com/regbo/lfp-pixi/v0.1.1/pixi-setup.ps1'))) -NoPersistUserEnv"
 ```
 
 ## Deploy and release
