@@ -73,6 +73,18 @@ def _iter_semver_tags(repo: git.Repo) -> Iterable[tuple[str, semver.Version]]:
             yield parsed
 
 
+def _latest_semver_tag_name() -> str | None:
+    """Return the latest semantic version tag name, preferring a v-prefix."""
+    repo = git.Repo(".")
+    semver_tags = list(_iter_semver_tags(repo))
+    if not semver_tags:
+        return None
+    prefix, latest_version = max(semver_tags, key=lambda item: item[1])
+    if not prefix:
+        prefix = "v"
+    return f"{prefix}{latest_version}"
+
+
 def _next_tag(major: bool, minor: bool) -> str:
     """Compute the next tag with patch bump by default."""
     repo = git.Repo(".")
@@ -92,6 +104,19 @@ def _next_tag(major: bool, minor: bool) -> str:
     else:
         bumped = latest_version.bump_patch()
     return f"{prefix}{bumped}"
+
+
+def _resolve_ref_for_commit() -> str:
+    """Use latest tag on main, otherwise use current branch."""
+    branch = _detect_branch_name()
+    if branch != "main":
+        return branch
+
+    latest_tag = _latest_semver_tag_name()
+    if latest_tag is None:
+        _LOG.warning("No semantic tags found. Falling back to 'main' for README URLs.")
+        return "main"
+    return latest_tag
 
 
 def _rewrite_readme_raw_urls(owner: str, repo: str, ref: str) -> bool:
@@ -160,11 +185,11 @@ def _resolve_message(user_message: str, default_message: str) -> str:
 
 def _run_commit_command(message: str, push: bool) -> None:
     owner, repo = _detect_repo_slug()
-    branch = _detect_branch_name()
-    _rewrite_readme_raw_urls(owner=owner, repo=repo, ref=branch)
+    ref = _resolve_ref_for_commit()
+    _rewrite_readme_raw_urls(owner=owner, repo=repo, ref=ref)
     resolved = _resolve_message(
         user_message=message,
-        default_message=f"chore: sync README raw URLs to {owner}/{repo}/{branch}",
+        default_message=f"chore: sync README raw URLs to {owner}/{repo}/{ref}",
     )
     committed = _commit_all_changes(resolved)
     if push and committed:
@@ -205,7 +230,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     commit_parser = subparsers.add_parser(
         "commit",
-        help="Rewrite README URLs to current branch, commit changes, optionally push.",
+        help="Rewrite README URLs to latest tag on main, else current branch.",
     )
     commit_parser.add_argument(
         "--message",
