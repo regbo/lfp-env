@@ -4,8 +4,8 @@ $ErrorActionPreference = "Stop"
 . "$PSScriptRoot\_test_lib.ps1"
 
 Invoke-Test -Name "installs argument tools" -Body {
-    Write-Host "[runner] running pixi-setup.ps1 with hello"
-    & .\pixi-setup.ps1 -NoPersistUserEnv hello
-    Write-Host "[runner] validating hello exists"
-    Assert-Command -Name "hello"
+    Write-Host "[runner] running pixi-setup.ps1 with ripgrep"
+    & .\pixi-setup.ps1 -NoPersistUserEnv ripgrep
+    Write-Host "[runner] validating rg exists"
+    Assert-Command -Name "rg"
 }
