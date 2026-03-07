@@ -23,9 +23,27 @@ function Log {
     if (-not $Command -or $Command.Count -eq 0) {
         return
     }
-    & $Command[0] $Command[1..($Command.Count - 1)] 2>&1 | ForEach-Object {
+    $commandArgs = @()
+    if ($Command.Count -gt 1) {
+        $commandArgs = $Command[1..($Command.Count - 1)]
+    }
+    & $Command[0] @commandArgs 2>&1 | ForEach-Object {
         [Console]::Error.WriteLine($_)
     }
+}
+
+function Convert-ToText {
+    param([Parameter(ValueFromPipeline = $true)]$Value)
+    if ($null -eq $Value) {
+        return ""
+    }
+    if ($Value -is [string]) {
+        return $Value
+    }
+    if ($Value -is [System.Collections.IEnumerable]) {
+        return (($Value | ForEach-Object { "$_" }) -join [Environment]::NewLine)
+    }
+    return [string]$Value
 }
 
 function Is-Blank {
@@ -48,15 +66,15 @@ function Http-Get {
     }
 
     if (Is-Exec "Invoke-WebRequest") {
-        return (Invoke-WebRequest -UseBasicParsing -Uri $Url).Content
+        return (Convert-ToText ((Invoke-WebRequest -UseBasicParsing -Uri $Url).Content))
     }
 
     if (Is-Exec "curl.exe") {
-        return (& curl.exe -fsSL $Url)
+        return (Convert-ToText (& curl.exe -fsSL $Url))
     }
 
     if (Is-Exec "wget.exe") {
-        return (& wget.exe -qO- $Url)
+        return (Convert-ToText (& wget.exe -qO- $Url))
     }
 
     throw "Neither Invoke-WebRequest, curl.exe, nor wget.exe is available."
@@ -180,8 +198,8 @@ Ensure-EnvDir -Name "PIXI_HOME" -Candidates @("$($env:HOME)\.pixi")
 Ensure-PathDir -Dir "$($env:PIXI_HOME)\bin"
 if (-not (Is-Exec "pixi")) {
     New-Item -ItemType Directory -Path "$($env:PIXI_HOME)\bin" -Force | Out-Null
-    $pixiInstaller = Http-Get "https://pixi.sh/install.ps1"
-    Invoke-Expression $pixiInstaller
+    $pixiInstaller = Convert-ToText (Http-Get "https://pixi.sh/install.ps1")
+    Invoke-Expression -Command $pixiInstaller
     if (-not (Is-Exec "pixi")) {
         throw "pixi installation failed."
     }
