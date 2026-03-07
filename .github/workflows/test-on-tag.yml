@@ -23,18 +23,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          scripts_json="$(python - <<'PY'
-import glob
-import json
-import sys
-
-scripts = sorted(glob.glob("tests/unix/test_*.sh"))
-if not scripts:
-    print("No unix test scripts found in tests/unix.", file=sys.stderr)
-    sys.exit(1)
-print(json.dumps(scripts))
-PY
-)"
+          scripts_json="$(
+            python -c 'import glob, json, sys; scripts = sorted(glob.glob("tests/unix/test_*.sh")); (print("No unix test scripts found in tests/unix.", file=sys.stderr), sys.exit(1)) if not scripts else print(json.dumps(scripts))'
+          )"
           echo "scripts=${scripts_json}" >> "$GITHUB_OUTPUT"
 
   unix-tests:
@@ -69,18 +60,9 @@ PY
         shell: bash
         run: |
           set -euo pipefail
-          scripts_json="$(python - <<'PY'
-import glob
-import json
-
-patterns = ["tests/windows/*.ps1", "tests/windows/*.bat", "tests/windows/*.cmd"]
-scripts = []
-for pattern in patterns:
-    scripts.extend(glob.glob(pattern))
-scripts = sorted(set(scripts))
-print(json.dumps(scripts))
-PY
-)"
+          scripts_json="$(
+            python -c 'import glob, json; patterns = ["tests/windows/*.ps1", "tests/windows/*.bat", "tests/windows/*.cmd"]; scripts = sorted(set(path for pattern in patterns for path in glob.glob(pattern))); print(json.dumps(scripts))'
+          )"
           if [ "${scripts_json}" != "[]" ]; then
             echo "has_windows_tests=true" >> "$GITHUB_OUTPUT"
             echo "scripts=${scripts_json}" >> "$GITHUB_OUTPUT"
