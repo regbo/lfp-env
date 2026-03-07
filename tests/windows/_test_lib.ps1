@@ -1,7 +1,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-# Shared helpers for Windows pixi-init tests.
+# Shared helpers for Windows pixi-setup tests.
 
 function Write-Log {
     param([Parameter(Mandatory = $true)][string]$Message)

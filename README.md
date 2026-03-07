@@ -7,13 +7,13 @@ Lightweight bootstrap scripts to get `pixi` installed quickly and ensure a few c
 MacOS/Linux install:
 
 ```sh
-eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-pixi/v0.0.9/pixi-init.sh | sh)"
+eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-pixi/v0.0.10/pixi-setup.sh | sh)"
 ```
 
 Windows install:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm -useb https://raw.githubusercontent.com/regbo/lfp-pixi/v0.0.9/pixi-init.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm -useb https://raw.githubusercontent.com/regbo/lfp-pixi/v0.0.10/pixi-setup.ps1 | iex"
 ```
 
 ## What the scripts do
@@ -37,24 +37,24 @@ Both init scripts:
 
 This repo includes:
 
-- `pixi-init.sh` for POSIX shells (macOS/Linux, and shell environments in containers)
-- `pixi-init.ps1` for PowerShell
-- `pixi-init-test.sh` for containerized validation of the shell script
+- `pixi-setup.sh` for POSIX shells (macOS/Linux, and shell environments in containers)
+- `pixi-setup.ps1` for PowerShell
+- `tests/unix` and `tests/windows` for script validation
 
 ## Quick start
 
-### POSIX shell (`pixi-init.sh`)
+### POSIX shell (`pixi-setup.sh`)
 
 Run from GitHub and apply exported environment changes in your current shell:
 
 ```sh
-eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-pixi/v0.0.9/pixi-init.sh | sh)"
+eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-pixi/v0.0.10/pixi-setup.sh | sh)"
 ```
 
 Install extra tools at the same time:
 
 ```sh
-eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-pixi/v0.0.9/pixi-init.sh | sh -s -- jq yq)"
+eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-pixi/v0.0.10/pixi-setup.sh | sh -s -- jq yq)"
 ```
 
 Notes:
@@ -62,45 +62,46 @@ Notes:
 - The script emits `export ...` statements only when it had to resolve missing env vars or update `PATH`.
 - `curl` or `wget` must be available to fetch the Pixi installer.
 
-### PowerShell (`pixi-init.ps1`)
+### PowerShell (`pixi-setup.ps1`)
 
 Run from GitHub using `irm` and `iex`:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm -useb https://raw.githubusercontent.com/regbo/lfp-pixi/v0.0.9/pixi-init.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm -useb https://raw.githubusercontent.com/regbo/lfp-pixi/v0.0.10/pixi-setup.ps1 | iex"
 ```
 
 Install extra tools:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "& ([scriptblock]::Create((irm -useb 'https://raw.githubusercontent.com/regbo/lfp-pixi/v0.0.9/pixi-init.ps1'))) jq yq"
+powershell -ExecutionPolicy Bypass -c "& ([scriptblock]::Create((irm -useb 'https://raw.githubusercontent.com/regbo/lfp-pixi/v0.0.10/pixi-setup.ps1'))) jq yq"
 ```
 
 By default, when environment values are newly resolved, the script persists them to the current user environment.  
 To keep changes only in the current PowerShell session:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "& ([scriptblock]::Create((irm -useb 'https://raw.githubusercontent.com/regbo/lfp-pixi/v0.0.9/pixi-init.ps1'))) -NoPersistUserEnv"
+powershell -ExecutionPolicy Bypass -c "& ([scriptblock]::Create((irm -useb 'https://raw.githubusercontent.com/regbo/lfp-pixi/v0.0.10/pixi-setup.ps1'))) -NoPersistUserEnv"
 ```
 
 ## Testing
 
-`pixi-init-test.sh` runs integration checks in a Debian container and verifies:
+Tag-triggered GitHub Actions test jobs run validation from `tests/unix` and `tests/windows`, and verify:
 
 - Bootstrap installs `pixi`, `git`, and `python`
 - Extra tool installation via arguments works
 - Re-running initialization is idempotent
 
-Run tests with Docker or Podman:
+Run Unix tests locally:
 
 ```bash
-./pixi-init-test.sh
+for f in tests/unix/test_*.sh; do bash "$f"; done
 ```
 
-Optional environment variables:
+Windows tests can be run with:
 
-- `CONTAINER_RUNTIME` to force `docker` or `podman`
-- `PIXI_INIT_TEST_IMAGE` to override the base image (default: `debian:stable-slim`)
+```powershell
+Get-ChildItem tests/windows/test_*.ps1 | ForEach-Object { pwsh -NoProfile -File $_.FullName }
+```
 
 ## License
 

@@ -4,8 +4,8 @@ $ErrorActionPreference = "Stop"
 . "$PSScriptRoot\_test_lib.ps1"
 
 Invoke-Test -Name "bootstrap and core tools" -Body {
-    Write-Host "[runner] running pixi-init.ps1"
-    & .\pixi-init.ps1 -NoPersistUserEnv
+    Write-Host "[runner] running pixi-setup.ps1"
+    & .\pixi-setup.ps1 -NoPersistUserEnv
 
     Write-Host "[runner] validating resolved environment and binaries"
     Assert-NotBlank -Value $env:TEMP -Name "TEMP"

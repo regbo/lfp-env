@@ -136,7 +136,7 @@ ensure_path_dir() {
     dir="${1-}"
     case ":$PATH:" in
         *":$dir:"*) ;;
-        *)  
+        *)
             PATH_MODIFIED=1
             PATH_MOD="$dir:$PATH"
             PATH="${PATH_MOD}"
