@@ -37,6 +37,9 @@ function Convert-ToText {
     if ($null -eq $Value) {
         return ""
     }
+    if ($Value -is [byte[]]) {
+        return [System.Text.Encoding]::UTF8.GetString($Value)
+    }
     if ($Value -is [string]) {
         return $Value
     }
