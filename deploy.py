@@ -3,8 +3,10 @@ import argparse
 import logging
 import pathlib
 import re
-import subprocess
-from typing import Sequence
+from typing import Iterable
+
+import git
+import semver
 
 # Deployment helper for commit/tag automation:
 # - Resolves owner/repo from git remote origin
@@ -17,18 +19,7 @@ _URL_PATTERN = re.compile(
     r"https://raw\.githubusercontent\.com/[^/\s]+/[^/\s]+/[^/\s]+/pixi-init\.(sh|ps1)"
 )
 _REPO_PATTERN = re.compile(r"(?:[:/])(?P<owner>[^/:]+)/(?P<repo>[^/]+?)(?:\.git)?$")
-_SEMVER_TAG_PATTERN = re.compile(r"^(?P<prefix>v?)(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)$")
-
-
-def _run_git(args: Sequence[str]) -> str:
-    """Run a git command and return stdout."""
-    result = subprocess.run(
-        ["git", *args],
-        check=True,
-        text=True,
-        capture_output=True,
-    )
-    return result.stdout.strip()
+_SEMVER_TAG_PATTERN = re.compile(r"^(?P<prefix>v?)(?P<version>\d+\.\d+\.\d+)$")
 
 
 def _parse_bool(value: str) -> bool:
@@ -45,7 +36,8 @@ def _parse_bool(value: str) -> bool:
 
 def _detect_repo_slug() -> tuple[str, str]:
     """Detect the repository owner/name from remote.origin.url."""
-    remote_url = _run_git(["config", "--get", "remote.origin.url"])
+    repo = git.Repo(".")
+    remote_url = repo.remotes.origin.url
     match = _REPO_PATTERN.search(remote_url)
     if not match:
         raise RuntimeError(f"Unable to parse owner/repo from remote URL: {remote_url}")
@@ -56,56 +48,50 @@ def _detect_repo_slug() -> tuple[str, str]:
 
 def _detect_branch_name() -> str:
     """Detect the current branch name; fallback to main for detached HEAD."""
-    branch = _run_git(["rev-parse", "--abbrev-ref", "HEAD"])
-    if branch == "HEAD":
+    repo = git.Repo(".")
+    if repo.head.is_detached:
         _LOG.warning("Detached HEAD detected. Falling back to 'main' for README URLs.")
         return "main"
-    return branch
+    return repo.active_branch.name
 
 
-def _list_tags() -> list[str]:
-    """Return tags sorted by semantic-like ordering from newest to oldest."""
-    output = _run_git(["tag", "--list", "--sort=-v:refname"])
-    if not output:
-        return []
-    return [line for line in output.splitlines() if line.strip()]
+def _parse_semver_tag(tag_name: str) -> tuple[str, semver.Version] | None:
+    """Parse tags in the form vX.Y.Z or X.Y.Z."""
+    match = _SEMVER_TAG_PATTERN.match(tag_name)
+    if not match:
+        return None
+    prefix = match.group("prefix")
+    version = semver.Version.parse(match.group("version"))
+    return prefix, version
 
 
-def _detect_latest_semver_tag() -> tuple[str, int, int, int] | None:
-    """Return latest semantic version tag details if one is present."""
-    for tag in _list_tags():
-        match = _SEMVER_TAG_PATTERN.match(tag)
-        if match:
-            return (
-                match.group("prefix"),
-                int(match.group("major")),
-                int(match.group("minor")),
-                int(match.group("patch")),
-            )
-    return None
+def _iter_semver_tags(repo: git.Repo) -> Iterable[tuple[str, semver.Version]]:
+    """Yield all semantic version tags from the repository."""
+    for tag_ref in repo.tags:
+        parsed = _parse_semver_tag(tag_ref.name)
+        if parsed is not None:
+            yield parsed
 
 
 def _next_tag(major: bool, minor: bool) -> str:
     """Compute the next tag with patch bump by default."""
-    latest = _detect_latest_semver_tag()
-    if latest is None:
-        prefix, major_version, minor_version, patch_version = "v", 0, 0, 0
-    else:
-        prefix, major_version, minor_version, patch_version = latest
+    repo = git.Repo(".")
+    semver_tags = list(_iter_semver_tags(repo))
+    if semver_tags:
+        prefix, latest_version = max(semver_tags, key=lambda item: item[1])
         if not prefix:
             prefix = "v"
+    else:
+        prefix = "v"
+        latest_version = semver.Version.parse("0.0.0")
 
     if major:
-        major_version += 1
-        minor_version = 0
-        patch_version = 0
+        bumped = latest_version.bump_major()
     elif minor:
-        minor_version += 1
-        patch_version = 0
+        bumped = latest_version.bump_minor()
     else:
-        patch_version += 1
-
-    return f"{prefix}{major_version}.{minor_version}.{patch_version}"
+        bumped = latest_version.bump_patch()
+    return f"{prefix}{bumped}"
 
 
 def _rewrite_readme_raw_urls(owner: str, repo: str, ref: str) -> bool:
@@ -132,38 +118,36 @@ def _rewrite_readme_raw_urls(owner: str, repo: str, ref: str) -> bool:
     return True
 
 
-def _has_staged_or_unstaged_changes() -> bool:
-    """Return True when the working tree has pending changes."""
-    status = _run_git(["status", "--porcelain"])
-    return bool(status)
-
-
 def _commit_all_changes(message: str) -> bool:
     """Stage all changes and commit when there is anything to commit."""
-    _run_git(["add", "-A"])
-    if not _has_staged_or_unstaged_changes():
+    repo = git.Repo(".")
+    repo.git.add(A=True)
+    if not repo.is_dirty(index=True, working_tree=True, untracked_files=True):
         _LOG.info("No changes to commit.")
         return False
-    subprocess.run(["git", "commit", "-m", message], check=True)
+    repo.index.commit(message)
     _LOG.info("Created commit: %s", message)
     return True
 
 
 def _push_commit() -> None:
     """Push current branch to upstream remote."""
-    subprocess.run(["git", "push"], check=True)
+    repo = git.Repo(".")
+    repo.remotes.origin.push()
     _LOG.info("Pushed branch to remote.")
 
 
 def _create_tag(tag: str) -> None:
     """Create a lightweight git tag."""
-    subprocess.run(["git", "tag", tag], check=True)
+    repo = git.Repo(".")
+    repo.create_tag(tag)
     _LOG.info("Created tag: %s", tag)
 
 
 def _push_tag(tag: str) -> None:
     """Push a single git tag to origin."""
-    subprocess.run(["git", "push", "origin", tag], check=True)
+    repo = git.Repo(".")
+    repo.remotes.origin.push(tag)
     _LOG.info("Pushed tag: %s", tag)
 
 

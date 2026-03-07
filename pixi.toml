@@ -12,3 +12,7 @@ tag = "python deploy.py tag"
 [dependencies]
 python = "*"
 git = "*"
+
+[pypi-dependencies]
+gitpython = "*"
+semver = "*"
