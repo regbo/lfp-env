@@ -5,32 +5,61 @@ on:
     tags:
       - "*"
 
+concurrency:
+  group: tag-tests
+  cancel-in-progress: true
+
 jobs:
-  unix-tests:
+  discover-unix-tests:
     runs-on: ubuntu-latest
+    outputs:
+      scripts: ${{ steps.discover.outputs.scripts }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Run all unix test scripts
+      - name: Discover unix test scripts
+        id: discover
         shell: bash
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          unix_scripts=(tests/unix/test_*.sh)
-          if [ "${#unix_scripts[@]}" -eq 0 ]; then
-            echo "No unix test scripts found in tests/unix."
-            exit 1
-          fi
-          for script in "${unix_scripts[@]}"; do
-            echo "Running ${script}"
-            bash "${script}"
-          done
+          scripts_json="$(python - <<'PY'
+import glob
+import json
+import sys
+
+scripts = sorted(glob.glob("tests/unix/test_*.sh"))
+if not scripts:
+    print("No unix test scripts found in tests/unix.", file=sys.stderr)
+    sys.exit(1)
+print(json.dumps(scripts))
+PY
+)"
+          echo "scripts=${scripts_json}" >> "$GITHUB_OUTPUT"
+
+  unix-tests:
+    needs: discover-unix-tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        script: ${{ fromJson(needs.discover-unix-tests.outputs.scripts) }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Run unix test script
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Running ${{ matrix.script }}"
+          bash "${{ matrix.script }}"
 
   detect-windows-tests:
     runs-on: ubuntu-latest
     outputs:
       has_windows_tests: ${{ steps.detect.outputs.has_windows_tests }}
+      scripts: ${{ steps.detect.outputs.scripts }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -40,35 +69,46 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          windows_scripts=(tests/windows/*.ps1 tests/windows/*.bat tests/windows/*.cmd)
-          if [ "${#windows_scripts[@]}" -gt 0 ]; then
+          scripts_json="$(python - <<'PY'
+import glob
+import json
+
+patterns = ["tests/windows/*.ps1", "tests/windows/*.bat", "tests/windows/*.cmd"]
+scripts = []
+for pattern in patterns:
+    scripts.extend(glob.glob(pattern))
+scripts = sorted(set(scripts))
+print(json.dumps(scripts))
+PY
+)"
+          if [ "${scripts_json}" != "[]" ]; then
             echo "has_windows_tests=true" >> "$GITHUB_OUTPUT"
+            echo "scripts=${scripts_json}" >> "$GITHUB_OUTPUT"
           else
             echo "has_windows_tests=false" >> "$GITHUB_OUTPUT"
+            echo "scripts=[]" >> "$GITHUB_OUTPUT"
           fi
 
   windows-tests:
     needs: detect-windows-tests
     if: needs.detect-windows-tests.outputs.has_windows_tests == 'true'
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        script: ${{ fromJson(needs.detect-windows-tests.outputs.scripts) }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Run windows test scripts
+      - name: Run windows test script
         shell: pwsh
         run: |
-          $scripts = Get-ChildItem -Path "tests/windows" -File -Include *.ps1,*.bat,*.cmd
-          if ($scripts.Count -eq 0) {
-            throw "No windows test scripts found in tests/windows."
-          }
-          foreach ($script in $scripts) {
-            Write-Host "Running $($script.FullName)"
-            switch ($script.Extension.ToLowerInvariant()) {
-              ".ps1" { pwsh -NoProfile -File $script.FullName }
-              ".bat" { cmd /c $script.FullName }
-              ".cmd" { cmd /c $script.FullName }
-              default { throw "Unsupported script extension: $($script.Extension)" }
-            }
+          $scriptPath = "${{ matrix.script }}"
+          Write-Host "Running $scriptPath"
+          switch ([System.IO.Path]::GetExtension($scriptPath).ToLowerInvariant()) {
+            ".ps1" { pwsh -NoProfile -File $scriptPath }
+            ".bat" { cmd /c $scriptPath }
+            ".cmd" { cmd /c $scriptPath }
+            default { throw "Unsupported script extension: $([System.IO.Path]::GetExtension($scriptPath))" }
           }
