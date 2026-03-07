@@ -61,7 +61,7 @@ jobs:
         run: |
           set -euo pipefail
           scripts_json="$(
-            python -c 'import glob, json; patterns = ["tests/windows/*.ps1", "tests/windows/*.bat", "tests/windows/*.cmd"]; scripts = sorted(set(path for pattern in patterns for path in glob.glob(pattern))); print(json.dumps(scripts))'
+            python -c 'import glob, json; patterns = ["tests/windows/test_*.ps1", "tests/windows/test_*.bat", "tests/windows/test_*.cmd"]; scripts = sorted(set(path for pattern in patterns for path in glob.glob(pattern))); print(json.dumps(scripts))'
           )"
           if [ "${scripts_json}" != "[]" ]; then
             echo "has_windows_tests=true" >> "$GITHUB_OUTPUT"
