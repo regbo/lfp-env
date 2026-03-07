@@ -8,6 +8,7 @@ $ErrorActionPreference = "Stop"
 
 # Accumulates environment assignment lines for callers that want to inspect output.
 $script:Exports = [ordered]@{}
+$script:PathModified = $false
 
 function Append-Export {
     param(
@@ -160,6 +161,7 @@ function Ensure-PathDir {
         return
     }
     $env:PATH = "$Dir;$env:PATH"
+    $script:PathModified = $true
 }
 
 function Ensure-Installed {
@@ -211,14 +213,16 @@ if (-not (Is-Exec "pixi")) {
 Ensure-Installed -Tool "python"
 Ensure-Installed -Tool "git"
 
-if ($Tools.Count -gt 0) {
-    foreach ($tool in $Tools) {
+if (@($Tools).Count -gt 0) {
+    foreach ($tool in @($Tools)) {
         Ensure-Installed -Tool $tool
     }
 }
 
-if ($script:Exports.Count -gt 0) {
-    Append-Export -Name "PATH" -Value $env:PATH
+if ($script:Exports.Count -gt 0 -or $script:PathModified) {
+    if ($script:PathModified) {
+        Append-Export -Name "PATH" -Value $env:PATH
+    }
     if (-not $NoPersistUserEnv) {
         foreach ($entry in $script:Exports.GetEnumerator()) {
             $name = $entry.Key

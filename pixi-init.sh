@@ -137,9 +137,8 @@ ensure_path_dir() {
     case ":$PATH:" in
         *":$dir:"*) ;;
         *)  
-            PATH_MOD="$dir:$PATH"
             PATH_MODIFIED=1
-            append_export "PATH" "${PATH_MOD}"
+            PATH_MOD="$dir:$PATH"
             PATH="${PATH_MOD}"
             export PATH
             ;;
@@ -206,10 +205,8 @@ fi
 
 
 # Emit accumulated exports (including PATH) for evaluation by caller if any exist
-if [ -n "$EXPORTS" ]; then
-  if [ "${PATH_MODIFIED}" -eq 0 ]; then 
-    append_export "PATH" "${PATH}"
-  fi
+if [ -n "$EXPORTS" ] || [ "${PATH_MODIFIED}" -eq 1 ]; then
+  append_export "PATH" "${PATH}"
   printf "%b" "$EXPORTS"
 fi
 
