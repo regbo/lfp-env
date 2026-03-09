@@ -86,7 +86,7 @@ fn main() -> Result<(), String> {
         Some(path) => path,
         None => resolve_mise_bin()?,
     };
-    let mise_doctor_output = run_xxx(&mise_bin, &["doctor"], false)
+    let mise_doctor_output = run_command_capture(&mise_bin, &["doctor"], false)
         .map_err(|err| format!("Failed to run 'mise doctor': {err}"))?;
     if debug_enabled() {
         debug_lazy(|| format!("mise doctor output at startup:\n{}", mise_doctor_output));
