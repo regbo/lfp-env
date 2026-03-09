@@ -1,4 +1,6 @@
 $ErrorActionPreference = "Stop"
+$envSetupToolSpec = if ([string]::IsNullOrWhiteSpace($env:ENV_SETUP_TOOL_SPEC)) { "github:regbo/lfp-env" } else { $env:ENV_SETUP_TOOL_SPEC }
+$localSetupValue = if ([string]::IsNullOrWhiteSpace($env:ENV_SETUP_LOCAL)) { "false" } else { $env:ENV_SETUP_LOCAL }
 
 function Resolve-MiseCommand {
     $miseCommand = Get-Command mise -ErrorAction SilentlyContinue
@@ -27,8 +29,11 @@ function Is-TrueFlag {
 }
 
 function Activate-MiseSession {
-    param([Parameter(Mandatory = $true)][string]$MiseExecutable)
-    $activationScript = & $MiseExecutable activate pwsh | Out-String
+    param(
+        [Parameter(Mandatory = $true)][string]$MiseExecutable,
+        [Parameter(Mandatory = $true)][string]$ShellName
+    )
+    $activationScript = & $MiseExecutable activate $ShellName | Out-String
     if (-not [string]::IsNullOrWhiteSpace($activationScript)) {
         $strictModeVersion = $null
         if (Get-Variable -Name PSStrictModeVersion -ErrorAction SilentlyContinue) {
@@ -59,9 +64,8 @@ if (-not (Get-Command mise -ErrorAction SilentlyContinue)) {
 }
 
 $miseExecutable = Resolve-MiseCommand
-Activate-MiseSession -MiseExecutable $miseExecutable
-$envSetupToolSpec = "github:regbo/lfp-env"
-$isLocalSetup = Is-TrueFlag -Value $env:ENV_SETUP_LOCAL
+Activate-MiseSession -MiseExecutable $miseExecutable -ShellName "pwsh"
+$isLocalSetup = Is-TrueFlag -Value $localSetupValue
 
 if ($isLocalSetup) {
     & $miseExecutable exec rust -- cargo install --path . --bin lfp-env --root "$HOME/.local" --force
@@ -75,4 +79,4 @@ if ($isLocalSetup) {
 # lfp-env may install additional tools (for example uv/python) during execution.
 # Refresh shims and re-activate so the current session can resolve new commands.
 & $miseExecutable reshim
-Activate-MiseSession -MiseExecutable $miseExecutable
+Activate-MiseSession -MiseExecutable $miseExecutable -ShellName "pwsh"

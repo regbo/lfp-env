@@ -1,6 +1,9 @@
 #!/bin/sh
 set -eu
 
+SHELL_NAME="${SHELL_NAME:-}"
+ENV_SETUP_TOOL_SPEC="${ENV_SETUP_TOOL_SPEC:-github:regbo/lfp-env}"
+ENV_SETUP_LOCAL="${ENV_SETUP_LOCAL:-FALSE}"
 EXPORTS=""
 
 # Append an export statement to the buffered EXPORTS output
@@ -220,10 +223,8 @@ ensure_env_dir() {
     fi
 }
 
-
 ensure_env_dir "LOCAL_BIN" "${HOME}/.local/bin"
-ENV_SETUP_TOOL_SPEC="github:regbo/lfp-env"
-if is_true_flag "${ENV_SETUP_LOCAL-}"; then
+if is_true_flag "${ENV_SETUP_LOCAL}"; then
   mise exec rust -- cargo install --path "." --bin lfp-env --root "${HOME}/.local" --force 1>&2
   "${LOCAL_BIN}/lfp-env" 1>&2
 else
@@ -231,7 +232,6 @@ else
   mise x "${ENV_SETUP_TOOL_SPEC}" -- lfp-env 1>&2
 fi
 
-SHELL_NAME=""
 if ! is_blank "${SHELL-}"; then
   SHELL_NAME="$(normalize_shell_name "${SHELL}")"
 elif is_exec "ps" && ! is_blank "${PPID-}"; then
