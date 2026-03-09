@@ -497,23 +497,25 @@ fn run_command_capture(command: &str, args: &[&str]) -> Result<String, String> {
         .args(args)
         .output()
         .map_err(|err| format!("Could not start '{command}': {err}"))?;
+    let stdout_text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr_text = String::from_utf8_lossy(&output.stderr).trim().to_string();
+
 
     if !output.status.success() {
         return Err(format!(
-            "Command '{command} {}' failed with status {}",
+            "Command '{command} {}' failed with status {}. stdout={:?} stderr={:?}",
             args.join(" "),
-            output.status
+            output.status,
+            stdout_text,
+            stderr_text
         ));
     }
-
-    let stdout_text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    debug_lazy(|| format!("Command '{}' stdout: {:?}", command, stdout_text));
     if !stdout_text.is_empty() {
+        if !stderr_text.is_empty() {
+            debug_lazy(|| format!("Command '{}' stderr: {:?}", command, stderr_text));
+        }
         return Ok(stdout_text);
     }
-
-    let stderr_text = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    debug_lazy(|| format!("Command '{}' stderr: {:?}", command, stderr_text));
     Ok(stderr_text)
 }
 
