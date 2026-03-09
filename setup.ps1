@@ -71,3 +71,8 @@ if ($isLocalSetup) {
     & $miseExecutable use -g $envSetupToolSpec
     & $miseExecutable x $envSetupToolSpec -- lfp-env
 }
+
+# lfp-env may install additional tools (for example uv/python) during execution.
+# Refresh shims and re-activate so the current session can resolve new commands.
+& $miseExecutable reshim
+Activate-MiseSession -MiseExecutable $miseExecutable
