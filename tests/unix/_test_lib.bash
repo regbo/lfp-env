@@ -27,12 +27,12 @@ check_base_dependencies() {
 run_setup_test() {
   local test_name="$1"
   local test_body="$2"
+  export MISE_VERBOSE=1
   log "START: ${test_name}"
   check_base_dependencies
   (
     set -euo pipefail
     cd "${TEST_ROOT_DIR}"
-    echo "[runner] test body:"
     if ! eval "${test_body}"; then
       printf '%s\n' "${test_body}"
       echo "test failed" >&2
