@@ -13,11 +13,12 @@ if (-not (Get-Command mise -ErrorAction SilentlyContinue)) {
     }
 }
 
+$envSetupToolSpec = "ubi:regbo/lfp-env"
 if (-not [string]::IsNullOrWhiteSpace($env:ENV_SETUP_LOCAL)) {
     & mise exec rust -- cargo install --path . --bin lfp-env --root "$HOME/.local" --force
+    $binaryPath = Join-Path $HOME ".local\bin\lfp-env.exe"
+    & $binaryPath
 } else {
-    $envSetupRepoUrl = "https://github.com/regbo/lfp-env.git"
-    & mise exec rust -- cargo install --git $envSetupRepoUrl --bin lfp-env --root "$HOME/.local" --force
+    & mise use -g $envSetupToolSpec
+    & mise x $envSetupToolSpec -- lfp-env
 }
-
-"lfp-env"

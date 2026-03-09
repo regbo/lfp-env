@@ -7,13 +7,13 @@ Lightweight setup scripts for bootstrapping `mise` and running the Rust-based en
 ### macOS/Linux
 
 ```sh
-eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-env/v0.1.2/setup.sh | sh)"
+eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-env/v0.1.3/setup.sh | sh)"
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm -useb https://raw.githubusercontent.com/regbo/lfp-env/v0.1.2/setup.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm -useb https://raw.githubusercontent.com/regbo/lfp-env/v0.1.3/setup.ps1 | iex"
 ```
 
 ## Local development mode

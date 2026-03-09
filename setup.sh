@@ -214,13 +214,15 @@ ensure_env_dir() {
 }
 
 
+ensure_env_dir "LOCAL_BIN" "${HOME}/.local/bin"
+ENV_SETUP_TOOL_SPEC="ubi:regbo/lfp-env"
 if ! is_blank "${ENV_SETUP_LOCAL-}"; then
   mise exec rust -- cargo install --path "." --bin lfp-env --root "${HOME}/.local" --force 1>&2
+  "${LOCAL_BIN}/lfp-env" 1>&2
 else
-  ENV_SETUP_REPO_URL="https://github.com/regbo/lfp-env.git"
-  mise exec rust -- cargo install --git "${ENV_SETUP_REPO_URL}" --bin lfp-env --root "${HOME}/.local" --force 1>&2
+  mise use -g "${ENV_SETUP_TOOL_SPEC}" 1>&2
+  mise x "${ENV_SETUP_TOOL_SPEC}" -- lfp-env 1>&2
 fi
-lfp-env 1>&2
 
 SHELL_NAME=""
 if ! is_blank "${SHELL-}"; then
