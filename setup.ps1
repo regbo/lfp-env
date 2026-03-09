@@ -30,7 +30,18 @@ function Activate-MiseSession {
     param([Parameter(Mandatory = $true)][string]$MiseExecutable)
     $activationScript = & $MiseExecutable activate pwsh | Out-String
     if (-not [string]::IsNullOrWhiteSpace($activationScript)) {
-        Invoke-Expression -Command $activationScript
+        $strictModeVersion = $null
+        if (Get-Variable -Name PSStrictModeVersion -ErrorAction SilentlyContinue) {
+            $strictModeVersion = $PSStrictModeVersion
+        }
+        Set-StrictMode -Off
+        try {
+            Invoke-Expression -Command $activationScript
+        } finally {
+            if ($null -ne $strictModeVersion) {
+                Set-StrictMode -Version $strictModeVersion
+            }
+        }
     }
 }
 
