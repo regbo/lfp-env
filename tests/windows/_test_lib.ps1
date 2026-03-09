@@ -28,6 +28,7 @@ function Invoke-Test {
         [Parameter(Mandatory = $true)][string]$Name,
         [Parameter(Mandatory = $true)][scriptblock]$Body
     )
+    $env:RUST_BACKTRACE = "1"
     $env:MISE_VERBOSE = "1"
     Write-Log "START: $Name"
     Push-Location (Join-Path $PSScriptRoot "..\..")
