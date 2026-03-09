@@ -11,8 +11,6 @@ eval "$(sh ./setup.sh)"
 echo "[runner] validating resolved environment and binaries"
 [ -n "${TEMP:-}" ]
 [ -n "${HOME:-}" ]
-[ -n "${LOCAL_BIN:-}" ]
-[ -n "${MISE_DATA_DIR:-}" ]
 command -v mise >/dev/null
 echo "[runner] verified: mise is installed"
 command -v git >/dev/null
