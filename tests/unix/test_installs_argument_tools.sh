@@ -6,7 +6,7 @@ source "${SCRIPT_DIR}/_test_lib.bash"
 
 run_setup_test "runs install script" '
 echo "[runner] running install.sh"
-eval "$(sh ./install.sh)"
+run_install_and_eval
 echo "[runner] validating mise exists"
 command -v mise >/dev/null
 '

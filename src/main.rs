@@ -37,9 +37,10 @@ struct CliOptions {
     /// Override export output format. Useful for cross-platform testing.
     #[arg(long = "export-path-format", value_enum, default_value = "auto")]
     export_path_format: ExportFormat,
-    /// Set log verbosity for this run (error, warn, info, debug, trace).
-    #[arg(long = "log-level", value_parser = parse_level_filter)]
-    log_level: Option<LevelFilter>,
+    /// Set log verbosity for this run (error, warn, info, debug, trace, off).
+    /// Reads LOG_LEVEL by default when not provided on CLI.
+    #[arg(long = "log-level", env = "LOG_LEVEL", default_value = "info", value_parser = parse_level_filter)]
+    log_level: LevelFilter,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -76,21 +77,10 @@ const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 /// - Installs missing or too-old programs via mise
 fn main() -> Result<(), String> {
     let options = parse_cli_options()?;
-    let log_level = resolve_log_level(&options);
-    init_logger(log_level);
-    if options.log_level.is_none() {
-        if let Ok(env_level) = env::var("LOG_LEVEL") {
-            if parse_level_filter(&env_level).is_err() {
-                warn!(
-                    "Invalid LOG_LEVEL='{}'. Supported: error,warn,info,debug,trace,off. Falling back to info.",
-                    env_level
-                );
-            }
-        }
-    }
+    init_logger(options.log_level);
     debug!(
         "CLI options resolved: profile={}, export_path={}, export_path_format={:?}, log_level={:?}",
-        options.profile, options.export_path, options.export_path_format, log_level
+        options.profile, options.export_path, options.export_path_format, options.log_level
     );
     let mise_bin = match options.mise_bin.clone() {
         Some(path) => path,
@@ -136,18 +126,6 @@ fn init_logger(log_level: LevelFilter) {
             }
         })
         .init();
-}
-
-fn resolve_log_level(options: &CliOptions) -> LevelFilter {
-    if let Some(cli_level) = options.log_level {
-        return cli_level;
-    }
-    if let Ok(env_level) = env::var("LOG_LEVEL") {
-        if let Ok(parsed) = parse_level_filter(&env_level) {
-            return parsed;
-        }
-    }
-    LevelFilter::Info
 }
 
 fn parse_level_filter(value: &str) -> Result<LevelFilter, String> {

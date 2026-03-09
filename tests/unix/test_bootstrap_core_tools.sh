@@ -6,7 +6,7 @@ source "${SCRIPT_DIR}/_test_lib.bash"
 
 run_setup_test "bootstrap and core tools" '
 echo "[runner] running install.sh"
-eval "$(sh ./install.sh)"
+run_install_and_eval
 
 echo "[runner] validating resolved environment and binaries"
 [ -n "${TEMP:-}" ]

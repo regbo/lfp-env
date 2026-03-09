@@ -36,3 +36,13 @@ run_setup_test() {
   )
   log "PASS: ${test_name}"
 }
+
+run_install_and_eval() {
+  local install_output=""
+  if ! install_output="$(sh ./install.sh)"; then
+    printf '%s\n' "${install_output}"
+    echo "install.sh failed" >&2
+    return 1
+  fi
+  eval "${install_output}"
+}
