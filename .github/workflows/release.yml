@@ -12,6 +12,9 @@ concurrency:
 permissions:
   contents: write
 
+env:
+  ENV_SETUP_LOCAL: "1"
+
 jobs:
   discover-unix-tests:
     runs-on: ubuntu-latest
