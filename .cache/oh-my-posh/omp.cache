@@ -1,0 +1,12 @@
+{
+    "environment_platform": {
+        "value": "darwin",
+        "timestamp": 1773035419,
+        "ttl": -1
+    },
+    "is_wsl": {
+        "value": "false",
+        "timestamp": 1773035419,
+        "ttl": -1
+    }
+}

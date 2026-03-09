@@ -1,7 +1,3 @@
-# pixi environments
-.pixi/*
-!.pixi/config.toml
-
 # IDE/editor files
 .vscode/
 .idea/

@@ -16,7 +16,7 @@ import semver
 _LOG = logging.getLogger("deploy")
 _README_PATH = pathlib.Path("README.md")
 _URL_PATTERN = re.compile(
-    r"https://raw\.githubusercontent\.com/[^/\s]+/[^/\s]+/[^/\s]+/pixi-setup\.(sh|ps1)"
+    r"https://raw\.githubusercontent\.com/[^/\s]+/[^/\s]+/[^/\s]+/setup\.(sh|ps1)"
 )
 _REPO_PATTERN = re.compile(r"(?:[:/])(?P<owner>[^/:]+)/(?P<repo>[^/]+?)(?:\.git)?$")
 _SEMVER_TAG_PATTERN = re.compile(r"^(?P<prefix>v?)(?P<version>\d+\.\d+\.\d+)$")
@@ -130,7 +130,7 @@ def _rewrite_readme_raw_urls(owner: str, repo: str, ref: str) -> bool:
         extension = match.group(1)
         return (
             f"https://raw.githubusercontent.com/{owner}/{repo}/{ref}/"
-            f"pixi-setup.{extension}"
+            f"setup.{extension}"
         )
 
     updated = _URL_PATTERN.sub(_replacement, content)
@@ -223,7 +223,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Commit and tag helper that normalizes README raw GitHub URLs "
-            "for pixi init scripts."
+            "for setup scripts."
         )
     )
     subparsers = parser.add_subparsers(dest="command", required=True)

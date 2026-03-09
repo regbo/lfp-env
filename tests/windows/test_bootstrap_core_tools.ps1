@@ -4,15 +4,11 @@ $ErrorActionPreference = "Stop"
 . "$PSScriptRoot\_test_lib.ps1"
 
 Invoke-Test -Name "bootstrap and core tools" -Body {
-    Write-Host "[runner] running pixi-setup.ps1"
-    & .\pixi-setup.ps1 -NoPersistUserEnv
+    Write-Host "[runner] running setup.ps1"
+    & .\setup.ps1
 
-    Write-Host "[runner] validating resolved environment and binaries"
-    Assert-NotBlank -Value $env:TEMP -Name "TEMP"
-    Assert-NotBlank -Value $env:HOME -Name "HOME"
-    Assert-NotBlank -Value $env:LOCAL_BIN -Name "LOCAL_BIN"
-    Assert-NotBlank -Value $env:PIXI_HOME -Name "PIXI_HOME"
-    Assert-Command -Name "pixi"
+    Write-Host "[runner] validating installed binaries"
+    Assert-Command -Name "mise"
     Assert-Command -Name "git"
     Assert-Command -Name "python"
 }

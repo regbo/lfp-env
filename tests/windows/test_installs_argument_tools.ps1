@@ -3,9 +3,9 @@ $ErrorActionPreference = "Stop"
 
 . "$PSScriptRoot\_test_lib.ps1"
 
-Invoke-Test -Name "installs argument tools" -Body {
-    Write-Host "[runner] running pixi-setup.ps1 with fzf"
-    & .\pixi-setup.ps1 -NoPersistUserEnv fzf
-    Write-Host "[runner] validating fzf exists"
-    Assert-Command -Name "fzf"
+Invoke-Test -Name "runs setup script" -Body {
+    Write-Host "[runner] running setup.ps1"
+    & .\setup.ps1
+    Write-Host "[runner] validating mise exists"
+    Assert-Command -Name "mise"
 }

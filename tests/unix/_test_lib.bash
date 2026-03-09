@@ -24,7 +24,7 @@ check_base_dependencies() {
   fi
 }
 
-run_pixi_test() {
+run_setup_test() {
   local test_name="$1"
   local test_body="$2"
   log "START: ${test_name}"
