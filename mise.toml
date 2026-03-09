@@ -1,16 +1,9 @@
 [env]
 PROJECT_NAME = "{{ config_root | basename }}"
-_.python.venv = { path = ".venv", create = true }
 
-[tasks.install]
-description = "Install dependencies"
-alias = "i"
-run = "uv pip install -r requirements.txt"
 
 [tasks.commit]
-depends = ["install"]
-run = "python workflow/deploy.py commit"
+run = "uv run --with-requirements requirements.txt -- workflow/deploy.py commit"
 
 [tasks.tag]
-depends = ["install"]
-run = "python workflow/deploy.py tag"
+run = "uv run --with-requirements requirements.txt -- python workflow/deploy.py tag"

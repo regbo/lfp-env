@@ -10,5 +10,6 @@ Invoke-Test -Name "bootstrap and core tools" -Body {
     Write-Host "[runner] validating installed binaries"
     Assert-Command -Name "mise"
     Assert-Command -Name "git"
+    Assert-Command -Name "uv"
     Assert-Command -Name "python"
 }

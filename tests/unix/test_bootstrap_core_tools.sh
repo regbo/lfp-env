@@ -15,6 +15,8 @@ command -v mise >/dev/null
 echo "[runner] verified: mise is installed"
 command -v git >/dev/null
 echo "[runner] verified: git is installed"
+command -v uv >/dev/null
+echo "[runner] verified: uv is installed"
 command -v python >/dev/null || command -v python3 >/dev/null
 echo "[runner] verified: python is installed"
 '

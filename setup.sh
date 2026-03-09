@@ -29,6 +29,13 @@ is_blank() {
   esac
 }
 
+# Return true when value is "1" or "true" (case-insensitive)
+is_true_flag() {
+  value="${1-}"
+  normalized="$(printf "%s" "${value}" | tr '[:upper:]' '[:lower:]')"
+  [ "${normalized}" = "1" ] || [ "${normalized}" = "true" ]
+}
+
 # Check if a command exists on PATH
 is_exec() {
   name="${1-}"
@@ -216,7 +223,7 @@ ensure_env_dir() {
 
 ensure_env_dir "LOCAL_BIN" "${HOME}/.local/bin"
 ENV_SETUP_TOOL_SPEC="github:regbo/lfp-env"
-if ! is_blank "${ENV_SETUP_LOCAL-}"; then
+if is_true_flag "${ENV_SETUP_LOCAL-}"; then
   mise exec rust -- cargo install --path "." --bin lfp-env --root "${HOME}/.local" --force 1>&2
   "${LOCAL_BIN}/lfp-env" 1>&2
 else

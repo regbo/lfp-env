@@ -17,6 +17,15 @@ function Resolve-MiseCommand {
     throw "mise is not available on PATH after installation."
 }
 
+function Is-TrueFlag {
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $false
+    }
+    $normalized = $Value.Trim().ToLowerInvariant()
+    return $normalized -eq "1" -or $normalized -eq "true"
+}
+
 # Install mise using the first available Windows package manager when needed.
 if (-not (Get-Command mise -ErrorAction SilentlyContinue)) {
     if (Get-Command winget -ErrorAction SilentlyContinue) {
@@ -32,7 +41,9 @@ if (-not (Get-Command mise -ErrorAction SilentlyContinue)) {
 
 $miseExecutable = Resolve-MiseCommand
 $envSetupToolSpec = "github:regbo/lfp-env"
-if (-not [string]::IsNullOrWhiteSpace($env:ENV_SETUP_LOCAL)) {
+$isLocalSetup = Is-TrueFlag -Value $env:ENV_SETUP_LOCAL
+
+if ($isLocalSetup) {
     & $miseExecutable exec rust -- cargo install --path . --bin lfp-env --root "$HOME/.local" --force
     $binaryPath = Join-Path $HOME ".local\bin\lfp-env.exe"
     & $binaryPath
