@@ -32,7 +32,12 @@ run_setup_test() {
   (
     set -euo pipefail
     cd "${TEST_ROOT_DIR}"
-    eval "${test_body}"
+    echo "[runner] test body:"
+    if ! eval "${test_body}"; then
+      printf '%s\n' "${test_body}"
+      echo "test body eval failed" >&2
+      exit 1
+    fi
   )
   log "PASS: ${test_name}"
 }
@@ -44,5 +49,9 @@ run_install_and_eval() {
     echo "install.sh failed" >&2
     return 1
   fi
-  eval "${install_output}"
+  if ! eval "${install_output}"; then
+    printf '%s\n' "${install_output}"
+    echo "install.sh eval failed" >&2
+    return 1
+  fi
 }

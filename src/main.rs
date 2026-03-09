@@ -92,10 +92,6 @@ fn main() -> Result<(), String> {
         debug_lazy(|| format!("mise doctor output at startup:\n{}", mise_doctor_output));
     }
     let mise_shims_path = resolve_mise_shims_dir_from_doctor(&mise_doctor_output)?;
-    debug!(
-        "Resolved mise shims path once at startup: '{}'",
-        mise_shims_path.display()
-    );
     apply_env_overrides(&options.env_overrides);
     info!("Using mise binary at '{}'", mise_bin);
     info!("Starting environment program checks");
