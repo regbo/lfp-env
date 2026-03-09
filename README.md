@@ -1,32 +1,32 @@
 # lfp-env
 
-Lightweight setup scripts for bootstrapping `mise` and running the Rust-based environment tool.
+Lightweight install scripts for bootstrapping `mise` and running the Rust-based environment tool.
 
 ## Quick start
 
 ### macOS/Linux
 
 ```sh
-eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-env/v0.1.10/setup.sh | sh)"
+eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-env/v0.1.11/install.sh | sh)"
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm -useb https://raw.githubusercontent.com/regbo/lfp-env/v0.1.10/setup.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm -useb https://raw.githubusercontent.com/regbo/lfp-env/v0.1.11/install.ps1 | iex"
 ```
 
 ## Local development mode
 
-Set `ENV_SETUP_LOCAL` to install and run the local crate from the current repo checkout instead of GitHub.
+Set `ENV_LOCAL_INSTALL` to install and run the local crate from the current repo checkout instead of GitHub.
 
 ```sh
-ENV_SETUP_LOCAL=1 sh ./setup.sh
+ENV_LOCAL_INSTALL=1 sh ./install.sh
 ```
 
 ```powershell
-$env:ENV_SETUP_LOCAL = "1"
-.\setup.ps1
+$env:ENV_LOCAL_INSTALL = "1"
+.\install.ps1
 ```
 
 ## Task runner

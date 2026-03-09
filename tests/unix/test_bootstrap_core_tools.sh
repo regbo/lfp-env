@@ -5,8 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/_test_lib.bash"
 
 run_setup_test "bootstrap and core tools" '
-echo "[runner] running setup.sh"
-eval "$(sh ./setup.sh)"
+echo "[runner] running install.sh"
+eval "$(sh ./install.sh)"
 
 echo "[runner] validating resolved environment and binaries"
 [ -n "${TEMP:-}" ]

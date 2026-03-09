@@ -13,7 +13,7 @@ permissions:
   contents: write
 
 env:
-  ENV_SETUP_LOCAL: "1"
+  ENV_LOCAL_INSTALL: "1"
 
 jobs:
   discover-unix-tests:
