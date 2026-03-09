@@ -1,7 +1,6 @@
 [env]
 PROJECT_NAME = "{{ config_root | basename }}"
 
-
 [tasks.commit]
 run = "uv run --with-requirements requirements.txt -- workflow/deploy.py commit"
 
