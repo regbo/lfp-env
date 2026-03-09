@@ -29,6 +29,7 @@ run_setup_test() {
   local test_body="$2"
   export RUST_BACKTRACE="1"
   export MISE_VERBOSE="1"
+  export ENV_LOCAL_INSTALL="1"
   log "START: ${test_name}"
   check_base_dependencies
   (

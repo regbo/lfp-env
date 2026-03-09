@@ -30,6 +30,7 @@ function Invoke-Test {
     )
     $env:RUST_BACKTRACE = "1"
     $env:MISE_VERBOSE = "1"
+    $env:ENV_LOCAL_INSTALL = "1"
     Write-Log "START: $Name"
     Push-Location (Join-Path $PSScriptRoot "..\..")
     try {

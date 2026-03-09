@@ -169,34 +169,9 @@ def _create_tag(tag: str) -> None:
     _LOG.info("Created tag: %s", tag)
 
 
-def _upsert_tag(tag: str) -> bool:
-    """Create or update a lightweight tag at HEAD. Returns True when moved."""
-    repo = git.Repo(".")
-    existing = next((tag_ref for tag_ref in repo.tags if tag_ref.name == tag), None)
-    if existing is None:
-        repo.create_tag(tag)
-        _LOG.info("Created tag: %s", tag)
-        return False
-
-    target_sha = repo.head.commit.hexsha
-    current_sha = existing.commit.hexsha
-    if current_sha == target_sha:
-        _LOG.info("Tag '%s' already points at HEAD.", tag)
-        return False
-
-    repo.delete_tag(existing)
-    repo.create_tag(tag)
-    _LOG.info("Updated tag '%s' from %s to %s.", tag, current_sha[:7], target_sha[:7])
-    return True
-
-
-def _push_tag(tag: str, *, force: bool = False) -> None:
+def _push_tag(tag: str) -> None:
     """Push a single git tag to origin."""
     repo = git.Repo(".")
-    if force:
-        repo.remotes.origin.push(f"+refs/tags/{tag}:refs/tags/{tag}")
-        _LOG.info("Force-pushed tag: %s", tag)
-        return
     repo.remotes.origin.push(tag)
     _LOG.info("Pushed tag: %s", tag)
 
@@ -238,20 +213,11 @@ def _run_tag_command(
     )
     committed = _commit_all_changes(resolved)
     _create_tag(resolved_tag)
-    latest_tag_updated = _upsert_tag("latest")
-
-    _rewrite_readme_raw_urls(owner=owner, repo=repo, ref="latest")
-    latest_resolved = _resolve_message(
-        user_message="generate",
-        default_message=f"chore: sync README raw URLs to {owner}/{repo}/latest",
-    )
-    latest_committed = _commit_all_changes(latest_resolved)
 
     if push:
-        if committed or latest_committed:
+        if committed:
             _push_commit()
         _push_tag(resolved_tag)
-        _push_tag("latest", force=latest_tag_updated)
 
 
 def _build_parser() -> argparse.ArgumentParser:
