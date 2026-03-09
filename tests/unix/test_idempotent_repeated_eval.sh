@@ -9,5 +9,5 @@ echo "[runner] running install.sh twice"
 run_install_and_eval
 run_install_and_eval
 echo "[runner] validating mise still exists"
-command -v mise >/dev/null
+mise -v >/dev/null
 '

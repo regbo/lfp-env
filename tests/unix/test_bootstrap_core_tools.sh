@@ -11,7 +11,7 @@ run_install_and_eval
 echo "[runner] validating resolved environment and binaries"
 [ -n "${TEMP:-}" ]
 [ -n "${HOME:-}" ]
-command -v mise >/dev/null
+mise -v >/dev/null
 echo "[runner] verified: mise is installed"
 command -v git >/dev/null
 echo "[runner] verified: git is installed"

@@ -8,7 +8,7 @@ Invoke-Test -Name "bootstrap and core tools" -Body {
     & .\install.ps1
 
     Write-Host "[runner] validating installed binaries"
-    Assert-Command -Name "mise"
+    mise -v | Out-Null
     Assert-Command -Name "git"
     Assert-Command -Name "uv"
     Assert-Command -Name "python"

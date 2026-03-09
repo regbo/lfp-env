@@ -7,5 +7,5 @@ Invoke-Test -Name "runs install script" -Body {
     Write-Host "[runner] running install.ps1"
     & .\install.ps1
     Write-Host "[runner] validating mise exists"
-    Assert-Command -Name "mise"
+    mise -v | Out-Null
 }
