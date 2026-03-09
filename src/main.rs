@@ -91,6 +91,11 @@ fn main() -> Result<(), String> {
     if debug_enabled() {
         debug_lazy(|| format!("mise doctor output at startup:\n{}", mise_doctor_output));
     }
+    let mise_shims_path = resolve_mise_shims_dir_from_doctor(&mise_doctor_output)?;
+    debug!(
+        "Resolved mise shims path once at startup: '{}'",
+        mise_shims_path.display()
+    );
     apply_env_overrides(&options.env_overrides);
     info!("Using mise binary at '{}'", mise_bin);
     info!("Starting environment program checks");
@@ -99,7 +104,7 @@ fn main() -> Result<(), String> {
         ensure_program(program, &mise_bin)?;
     }
     if should_write_profile(&options) {
-        configure_shell_profile()?;
+        configure_shell_profile(&mise_shims_path)?;
     } else {
         info!("Skipping profile configuration (--profile=false)");
     }
@@ -110,7 +115,7 @@ fn main() -> Result<(), String> {
         &mise_bin,
         options.export_path,
         export_format,
-        &mise_doctor_output,
+        &mise_shims_path,
     )?;
     Ok(())
 }
@@ -200,7 +205,7 @@ fn print_env_exports(
     mise_bin: &str,
     force_export_path: bool,
     export_format: ExportFormat,
-    mise_doctor_output: &str,
+    mise_shims_path: &Path,
 ) -> Result<(), String> {
     debug!(
         "Preparing export output: env_override_count={}, force_export_path={}, export_format={:?}",
@@ -226,7 +231,7 @@ fn print_env_exports(
         mise_bin,
         force_export_path,
         export_format,
-        mise_doctor_output,
+        mise_shims_path,
     )? {
         println!("{path_export_line}");
     }
@@ -241,7 +246,7 @@ fn build_path_export_lines(
     mise_bin: &str,
     force_export_path: bool,
     export_format: ExportFormat,
-    mise_doctor_output: &str,
+    mise_shims_path: &Path,
 ) -> Result<Vec<String>, String> {
     let path_value = env::var("PATH").unwrap_or_default();
     let mut lines: Vec<String> = Vec::new();
@@ -257,18 +262,13 @@ fn build_path_export_lines(
         }
     }
 
-    let mise_shims = resolve_mise_shims_dir_from_doctor(mise_doctor_output)?;
-    debug!("Resolved mise shims directory '{}'", mise_shims.display());
-    if force_export_path || !path_contains_directory(&path_value, &mise_shims) {
-        if export_format == ExportFormat::Unix {
-            lines.push(
-                "export PATH=\"${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}/shims:$PATH\""
-                    .to_string(),
-            );
-        } else {
-            let export_dir = render_home_relative_path(&mise_shims, export_format);
-            lines.push(format_path_prepend_line(&export_dir, export_format));
-        }
+    debug!(
+        "Using pre-resolved mise shims directory '{}'",
+        mise_shims_path.display()
+    );
+    if force_export_path || !path_contains_directory(&path_value, mise_shims_path) {
+        let export_dir = render_home_relative_path(mise_shims_path, export_format);
+        lines.push(format_path_prepend_line(&export_dir, export_format));
     } else {
         info!("PATH already contains mise shims directory");
     }
@@ -614,16 +614,15 @@ fn resolve_mise_bin() -> Result<String, String> {
 }
 
 /// Configure shell profile to include local bin path and mise activation.
-fn configure_shell_profile() -> Result<(), String> {
+fn configure_shell_profile(mise_shims_path: &Path) -> Result<(), String> {
     #[cfg(windows)]
     {
-        let user_profile = env::var("USERPROFILE")
-            .map_err(|_| "USERPROFILE is not set; cannot configure user PATH".to_string())?;
-        let local_bin = Path::new(&user_profile).join(".local").join("bin");
-        ensure_windows_user_path_contains(&local_bin)?;
+        let shims_export_dir = render_home_relative_path(mise_shims_path, ExportFormat::Windows);
+        ensure_windows_user_path_contains(mise_shims_path)?;
         info!(
-            "Configured Windows user PATH to include '{}'",
-            local_bin.display()
+            "Configured Windows user PATH to include '{}' (resolved path: '{}')",
+            shims_export_dir,
+            mise_shims_path.display()
         );
         return Ok(());
     }
@@ -632,12 +631,12 @@ fn configure_shell_profile() -> Result<(), String> {
     {
         let home = env::var("HOME").map_err(|_| "HOME is not set".to_string())?;
         debug!("Configuring non-Windows profiles under HOME='{}'", home);
-        let shims_path_line =
-            r#"export PATH="${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}/shims:$PATH""#;
+        let shims_export_dir = render_home_relative_path(mise_shims_path, ExportFormat::Unix);
+        let shims_path_line = format!("export PATH=\"{shims_export_dir}:$PATH\"");
 
         for profile_path in resolve_non_interactive_profiles(&home) {
             debug!("Checking non-interactive profile '{}'", profile_path.display());
-            ensure_profile_line(&profile_path, shims_path_line)?;
+            ensure_profile_line(&profile_path, &shims_path_line)?;
         }
 
         for (shell_name, profile_path) in resolve_interactive_profiles(&home) {
