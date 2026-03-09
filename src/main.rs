@@ -86,7 +86,7 @@ fn main() -> Result<(), String> {
         Some(path) => path,
         None => resolve_mise_bin()?,
     };
-    let mise_doctor_output = run_command_capture(&mise_bin, &["doctor"])
+    let mise_doctor_output = run_xxx(&mise_bin, &["doctor"], false)
         .map_err(|err| format!("Failed to run 'mise doctor': {err}"))?;
     if debug_enabled() {
         debug_lazy(|| format!("mise doctor output at startup:\n{}", mise_doctor_output));
@@ -442,7 +442,7 @@ fn ensure_program(program: &ProgramSpec, mise_bin: &str) -> Result<(), String> {
         "Ensuring program '{}' with version args {:?} and min_version {:?}",
         program.name, program.version_args, program.min_version
     );
-    let version_output = run_command_capture(program.name, program.version_args);
+    let version_output = run_command_capture_check(program.name, program.version_args);
     let needs_install = match version_output {
         Ok(output_text) => match program.min_version {
             Some(min_version) => {
@@ -491,7 +491,15 @@ fn install_with_mise(program_name: &str, mise_bin: &str) -> Result<(), String> {
 }
 
 /// Run a command and capture stdout/stderr text when successful.
-fn run_command_capture(command: &str, args: &[&str]) -> Result<String, String> {
+fn run_command_capture_check(command: &str, args: &[&str]) -> Result<String, String> {
+    run_command_capture(command, args, true)
+}
+
+fn run_command_capture(
+    command: &str,
+    args: &[&str],
+    check_exit_status: bool,
+) -> Result<String, String> {
     debug!("Running command capture: '{}' with args {:?}", command, args);
     let output = Command::new(command)
         .args(args)
@@ -501,7 +509,7 @@ fn run_command_capture(command: &str, args: &[&str]) -> Result<String, String> {
     let stderr_text = String::from_utf8_lossy(&output.stderr).trim().to_string();
 
 
-    if !output.status.success() {
+    if check_exit_status && !output.status.success() {
         return Err(format!(
             "Command '{command} {}' failed with status {}. stdout={:?} stderr={:?}",
             args.join(" "),
@@ -586,7 +594,7 @@ fn resolve_mise_bin() -> Result<String, String> {
 #[cfg(not(windows))]
 fn resolve_mise_bin() -> Result<String, String> {
     debug!("Resolving mise binary via 'type -a mise'");
-    let output = run_command_capture("sh", &["-lc", "type -a mise"])?;
+    let output = run_command_capture_check("sh", &["-lc", "type -a mise"])?;
     for line in output.lines() {
         let trimmed = line.trim();
         if let Some((_, path_part)) = trimmed.split_once(" is /") {
