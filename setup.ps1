@@ -26,6 +26,14 @@ function Is-TrueFlag {
     return $normalized -eq "1" -or $normalized -eq "true"
 }
 
+function Activate-MiseSession {
+    param([Parameter(Mandatory = $true)][string]$MiseExecutable)
+    $activationScript = & $MiseExecutable activate pwsh | Out-String
+    if (-not [string]::IsNullOrWhiteSpace($activationScript)) {
+        Invoke-Expression -Command $activationScript
+    }
+}
+
 # Install mise using the first available Windows package manager when needed.
 if (-not (Get-Command mise -ErrorAction SilentlyContinue)) {
     if (Get-Command winget -ErrorAction SilentlyContinue) {
@@ -40,6 +48,7 @@ if (-not (Get-Command mise -ErrorAction SilentlyContinue)) {
 }
 
 $miseExecutable = Resolve-MiseCommand
+Activate-MiseSession -MiseExecutable $miseExecutable
 $envSetupToolSpec = "github:regbo/lfp-env"
 $isLocalSetup = Is-TrueFlag -Value $env:ENV_SETUP_LOCAL
 
