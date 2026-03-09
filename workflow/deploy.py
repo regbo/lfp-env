@@ -107,16 +107,11 @@ def _next_tag(major: bool, minor: bool) -> str:
 
 
 def _resolve_ref_for_commit() -> str:
-    """Use latest tag on main, otherwise use current branch."""
+    """Use latest alias on main, otherwise use current branch."""
     branch = _detect_branch_name()
     if branch != "main":
         return branch
-
-    latest_tag = _latest_semver_tag_name()
-    if latest_tag is None:
-        _LOG.warning("No semantic tags found. Falling back to 'main' for README URLs.")
-        return "main"
-    return latest_tag
+    return "latest"
 
 
 def _rewrite_readme_raw_urls(owner: str, repo: str, ref: str) -> bool:
