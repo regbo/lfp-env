@@ -1,5 +1,5 @@
 use clap::{ArgAction, Parser, ValueEnum};
-use log::{info, warn};
+use log::{debug, info, warn, Level, LevelFilter};
 use std::collections::BTreeSet;
 use std::env;
 use std::fs::{self, OpenOptions};
@@ -37,17 +37,14 @@ struct CliOptions {
     /// Override export output format. Useful for cross-platform testing.
     #[arg(long = "export-path-format", value_enum, default_value = "auto")]
     export_path_format: ExportFormat,
+    /// Set log verbosity for this run (error, warn, info, debug, trace).
+    #[arg(long = "log-level", value_parser = parse_level_filter)]
+    log_level: Option<LevelFilter>,
 }
 
-#[derive(Clone, Copy, Debug, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 enum ExportFormat {
     Auto,
-    Unix,
-    Windows,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ExportStyle {
     Unix,
     Windows,
 }
@@ -78,20 +75,32 @@ const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 /// - Validates required programs
 /// - Installs missing or too-old programs via mise
 fn main() -> Result<(), String> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-        .format(|buf, record| {
-            if record.level() == log::Level::Info {
-                writeln!(buf, "[{}] {}", PKG_NAME, record.args())
-            } else {
-                writeln!(buf, "[{}] [{}] {}", PKG_NAME, record.level(), record.args())
-            }
-        })
-        .init();
     let options = parse_cli_options()?;
+    let log_level = resolve_log_level(&options);
+    init_logger(log_level);
+    if options.log_level.is_none() {
+        if let Ok(env_level) = env::var("LOG_LEVEL") {
+            if parse_level_filter(&env_level).is_err() {
+                warn!(
+                    "Invalid LOG_LEVEL='{}'. Supported: error,warn,info,debug,trace,off. Falling back to info.",
+                    env_level
+                );
+            }
+        }
+    }
+    debug!(
+        "CLI options resolved: profile={}, export_path={}, export_path_format={:?}, log_level={:?}",
+        options.profile, options.export_path, options.export_path_format, log_level
+    );
     let mise_bin = match options.mise_bin.clone() {
         Some(path) => path,
         None => resolve_mise_bin()?,
     };
+    let mise_doctor_output = run_command_capture(&mise_bin, &["doctor"])
+        .map_err(|err| format!("Failed to run 'mise doctor': {err}"))?;
+    if debug_enabled() {
+        debug_lazy(|| format!("mise doctor output at startup:\n{}", mise_doctor_output));
+    }
     apply_env_overrides(&options.env_overrides);
     info!("Using mise binary at '{}'", mise_bin);
     info!("Starting environment program checks");
@@ -104,28 +113,74 @@ fn main() -> Result<(), String> {
     } else {
         info!("Skipping profile configuration (--profile=false)");
     }
-    let export_style = resolve_export_style(options.export_path_format);
+    let export_format = resolve_export_format(options.export_path_format);
     info!("Environment program checks complete");
     print_env_exports(
         &options.env_overrides,
         &mise_bin,
         options.export_path,
-        export_style,
-    );
+        export_format,
+        &mise_doctor_output,
+    )?;
     Ok(())
 }
 
-fn resolve_export_style(export_format: ExportFormat) -> ExportStyle {
+fn init_logger(log_level: LevelFilter) {
+    env_logger::Builder::new()
+        .filter_level(log_level)
+        .format(|buf, record| {
+            if record.level() == log::Level::Info {
+                writeln!(buf, "[{}] {}", PKG_NAME, record.args())
+            } else {
+                writeln!(buf, "[{}] [{}] {}", PKG_NAME, record.level(), record.args())
+            }
+        })
+        .init();
+}
+
+fn resolve_log_level(options: &CliOptions) -> LevelFilter {
+    if let Some(cli_level) = options.log_level {
+        return cli_level;
+    }
+    if let Ok(env_level) = env::var("LOG_LEVEL") {
+        if let Ok(parsed) = parse_level_filter(&env_level) {
+            return parsed;
+        }
+    }
+    LevelFilter::Info
+}
+
+fn parse_level_filter(value: &str) -> Result<LevelFilter, String> {
+    value
+        .trim()
+        .parse::<LevelFilter>()
+        .map_err(|_| format!("Invalid log level '{value}'. Expected one of: error,warn,info,debug,trace,off"))
+}
+
+fn debug_enabled() -> bool {
+    log::log_enabled!(Level::Debug)
+}
+
+fn debug_lazy<F>(build_message: F)
+where
+    F: FnOnce() -> String,
+{
+    if debug_enabled() {
+        debug!("{}", build_message());
+    }
+}
+
+fn resolve_export_format(export_format: ExportFormat) -> ExportFormat {
     match export_format {
         ExportFormat::Auto => {
             if cfg!(windows) {
-                ExportStyle::Windows
+                ExportFormat::Windows
             } else {
-                ExportStyle::Unix
+                ExportFormat::Unix
             }
         }
-        ExportFormat::Unix => ExportStyle::Unix,
-        ExportFormat::Windows => ExportStyle::Windows,
+        ExportFormat::Unix => ExportFormat::Unix,
+        ExportFormat::Windows => ExportFormat::Windows,
     }
 }
 
@@ -135,8 +190,16 @@ fn should_write_profile(options: &CliOptions) -> bool {
 
 fn apply_env_overrides(env_overrides: &[(String, String)]) {
     for (key, value) in env_overrides {
+        let previous = env::var(key).ok();
+        debug_lazy(|| {
+            format!(
+                "Applying env override key='{}' previous={:?} next={:?}",
+                key, previous, value
+            )
+        });
         env::set_var(key, value);
         info!("Applied env override '{}'", key);
+        debug_lazy(|| format!("Current env '{}' now {:?}", key, env::var(key).ok()));
     }
 }
 
@@ -158,23 +221,38 @@ fn print_env_exports(
     env_overrides: &[(String, String)],
     mise_bin: &str,
     force_export_path: bool,
-    export_style: ExportStyle,
-) {
+    export_format: ExportFormat,
+    mise_doctor_output: &str,
+) -> Result<(), String> {
+    debug!(
+        "Preparing export output: env_override_count={}, force_export_path={}, export_format={:?}",
+        env_overrides.len(),
+        force_export_path,
+        export_format
+    );
     if env_overrides.is_empty() {
         info!("No env to update");
     }
     let mut emitted: BTreeSet<&str> = BTreeSet::new();
     for (key, _) in env_overrides {
         if !emitted.insert(key.as_str()) {
+            debug!("Skipping duplicate env override key '{}'", key);
             continue;
         }
         if let Ok(value) = env::var(key) {
-            println!("{}", format_env_assignment_line(key, &value, export_style));
+            debug_lazy(|| format!("Emitting env export for key='{}' value={:?}", key, value));
+            println!("{}", format_env_assignment_line(key, &value, export_format));
         }
     }
-    for path_export_line in build_path_export_lines(mise_bin, force_export_path, export_style) {
+    for path_export_line in build_path_export_lines(
+        mise_bin,
+        force_export_path,
+        export_format,
+        mise_doctor_output,
+    )? {
         println!("{path_export_line}");
     }
+    Ok(())
 }
 
 /// Build PATH export lines for required directories.
@@ -184,72 +262,111 @@ fn print_env_exports(
 fn build_path_export_lines(
     mise_bin: &str,
     force_export_path: bool,
-    export_style: ExportStyle,
-) -> Vec<String> {
+    export_format: ExportFormat,
+    mise_doctor_output: &str,
+) -> Result<Vec<String>, String> {
     let path_value = env::var("PATH").unwrap_or_default();
     let mut lines: Vec<String> = Vec::new();
+    debug_lazy(|| format!("Current PATH before export checks: {}", path_value));
 
     if let Some(mise_parent) = Path::new(mise_bin).parent() {
+        debug!("Resolved mise parent directory '{}'", mise_parent.display());
         if force_export_path || !path_contains_directory(&path_value, mise_parent) {
-            let export_dir = render_home_relative_path(mise_parent, export_style);
-            lines.push(format_path_prepend_line(&export_dir, export_style));
+            let export_dir = render_home_relative_path(mise_parent, export_format);
+            lines.push(format_path_prepend_line(&export_dir, export_format));
         } else {
             info!("PATH already contains mise parent directory");
         }
     }
 
-    if let Some(mise_shims) = resolve_mise_shims_dir() {
-        if force_export_path || !path_contains_directory(&path_value, &mise_shims) {
-            if export_style == ExportStyle::Unix {
-                lines.push(
-                    "export PATH=\"${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}/shims:$PATH\""
-                        .to_string(),
-                );
-            } else {
-                let export_dir = render_home_relative_path(&mise_shims, export_style);
-                lines.push(format_path_prepend_line(&export_dir, export_style));
-            }
+    let mise_shims = resolve_mise_shims_dir_from_doctor(mise_doctor_output)?;
+    debug!("Resolved mise shims directory '{}'", mise_shims.display());
+    if force_export_path || !path_contains_directory(&path_value, &mise_shims) {
+        if export_format == ExportFormat::Unix {
+            lines.push(
+                "export PATH=\"${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}/shims:$PATH\""
+                    .to_string(),
+            );
         } else {
-            info!("PATH already contains mise shims directory");
+            let export_dir = render_home_relative_path(&mise_shims, export_format);
+            lines.push(format_path_prepend_line(&export_dir, export_format));
         }
     } else {
-        warn!("Could not resolve mise shims directory from environment");
+        info!("PATH already contains mise shims directory");
     }
 
-    lines
+    debug_lazy(|| format!("Generated PATH export lines: {:?}", lines));
+    Ok(lines)
 }
 
-/// Resolve `${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}/shims`.
-fn resolve_mise_shims_dir() -> Option<PathBuf> {
-    if let Ok(mise_data_dir) = env::var("MISE_DATA_DIR") {
-        if !mise_data_dir.trim().is_empty() {
-            return Some(Path::new(&mise_data_dir).join("shims"));
+/// Resolve the shims directory from `mise doctor` output.
+fn resolve_mise_shims_dir_from_doctor(mise_doctor_output: &str) -> Result<PathBuf, String> {
+    let mut in_dirs_section = false;
+    for line in mise_doctor_output.lines() {
+        let trimmed = line.trim();
+        if trimmed == "dirs:" {
+            in_dirs_section = true;
+            continue;
+        }
+        if !in_dirs_section {
+            continue;
+        }
+        if !line.starts_with("  ") {
+            break;
+        }
+        if let Some(value) = trimmed.strip_prefix("shims:") {
+            let raw_path = value.trim();
+            if raw_path.is_empty() {
+                return Err(
+                    "Found 'shims:' in mise doctor output, but it did not contain a path."
+                        .to_string(),
+                );
+            }
+            let expanded = expand_home_dir_token(raw_path);
+            debug!(
+                "Resolved shims path from mise doctor: raw='{}' expanded='{}'",
+                raw_path, expanded
+            );
+            return Ok(PathBuf::from(expanded));
         }
     }
-    if let Ok(xdg_data_home) = env::var("XDG_DATA_HOME") {
-        if !xdg_data_home.trim().is_empty() {
-            return Some(Path::new(&xdg_data_home).join("mise").join("shims"));
-        }
+    Err("Could not resolve mise shims directory from 'mise doctor' output.".to_string())
+}
+
+/// Expand a leading '~' using HOME or USERPROFILE.
+fn expand_home_dir_token(path_value: &str) -> String {
+    if !path_value.starts_with('~') {
+        return path_value.to_string();
     }
-    let home = env::var("HOME").ok()?;
-    Some(Path::new(&home).join(".local").join("share").join("mise").join("shims"))
+    let home = env::var("HOME")
+        .ok()
+        .or_else(|| env::var("USERPROFILE").ok())
+        .unwrap_or_else(|| "~".to_string());
+    if path_value == "~" {
+        return home;
+    }
+    let suffix = path_value.trim_start_matches('~');
+    let normalized_suffix = suffix.trim_start_matches(['/', '\\']);
+    format!("{}/{}", home, normalized_suffix)
 }
 
 /// Render a path as ${HOME}/... when possible, otherwise absolute.
-fn render_home_relative_path(path: &Path, export_style: ExportStyle) -> String {
+fn render_home_relative_path(path: &Path, export_format: ExportFormat) -> String {
     let absolute = normalize_path_string(path.to_string_lossy().as_ref());
     if let Ok(home) = env::var("HOME") {
         let home_normalized = normalize_path_string(&home);
         if absolute == home_normalized {
-            return match export_style {
-                ExportStyle::Unix => "${HOME}".to_string(),
-                ExportStyle::Windows => "$HOME".to_string(),
+            return match export_format {
+                ExportFormat::Unix => "${HOME}".to_string(),
+                ExportFormat::Windows => "$HOME".to_string(),
+                ExportFormat::Auto => "${HOME}".to_string(),
             };
         }
         if let Some(suffix) = absolute.strip_prefix(&(home_normalized.clone() + "/")) {
-            return match export_style {
-                ExportStyle::Unix => format!("${{HOME}}/{suffix}"),
-                ExportStyle::Windows => format!("$HOME/{suffix}"),
+            return match export_format {
+                ExportFormat::Unix => format!("${{HOME}}/{suffix}"),
+                ExportFormat::Windows => format!("$HOME/{suffix}"),
+                ExportFormat::Auto => format!("${{HOME}}/{suffix}"),
             };
         }
     }
@@ -279,6 +396,10 @@ fn path_contains_directory(path_value: &str, target_directory: &Path) -> bool {
             return true;
         }
     }
+    debug!(
+        "PATH does not contain target directory '{}'",
+        target_directory.display()
+    );
     false
 }
 
@@ -317,28 +438,32 @@ fn normalize_path_string(path: &str) -> String {
     normalized
 }
 
-fn format_env_assignment_line(key: &str, value: &str, export_style: ExportStyle) -> String {
-    match export_style {
-        ExportStyle::Unix => {
+fn format_env_assignment_line(key: &str, value: &str, export_format: ExportFormat) -> String {
+    match export_format {
+        ExportFormat::Unix | ExportFormat::Auto => {
             let escaped = value.replace('\'', "'\\''");
             format!("export {key}='{escaped}'")
         }
-        ExportStyle::Windows => {
+        ExportFormat::Windows => {
             let escaped = value.replace('\'', "''");
             format!("$env:{key}='{escaped}'")
         }
     }
 }
 
-fn format_path_prepend_line(path_to_prepend: &str, export_style: ExportStyle) -> String {
-    match export_style {
-        ExportStyle::Unix => format!("export PATH=\"{path_to_prepend}:$PATH\""),
-        ExportStyle::Windows => format!("$env:PATH=\"{path_to_prepend};$env:PATH\""),
+fn format_path_prepend_line(path_to_prepend: &str, export_format: ExportFormat) -> String {
+    match export_format {
+        ExportFormat::Unix | ExportFormat::Auto => format!("export PATH=\"{path_to_prepend}:$PATH\""),
+        ExportFormat::Windows => format!("$env:PATH=\"{path_to_prepend};$env:PATH\""),
     }
 }
 
 /// Ensure a program is available and, when required, meets minimum version.
 fn ensure_program(program: &ProgramSpec, mise_bin: &str) -> Result<(), String> {
+    debug!(
+        "Ensuring program '{}' with version args {:?} and min_version {:?}",
+        program.name, program.version_args, program.min_version
+    );
     let version_output = run_command_capture(program.name, program.version_args);
     let needs_install = match version_output {
         Ok(output_text) => match program.min_version {
@@ -389,6 +514,7 @@ fn install_with_mise(program_name: &str, mise_bin: &str) -> Result<(), String> {
 
 /// Run a command and capture stdout/stderr text when successful.
 fn run_command_capture(command: &str, args: &[&str]) -> Result<String, String> {
+    debug!("Running command capture: '{}' with args {:?}", command, args);
     let output = Command::new(command)
         .args(args)
         .output()
@@ -403,15 +529,19 @@ fn run_command_capture(command: &str, args: &[&str]) -> Result<String, String> {
     }
 
     let stdout_text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    debug_lazy(|| format!("Command '{}' stdout: {:?}", command, stdout_text));
     if !stdout_text.is_empty() {
         return Ok(stdout_text);
     }
 
-    Ok(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    let stderr_text = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    debug_lazy(|| format!("Command '{}' stderr: {:?}", command, stderr_text));
+    Ok(stderr_text)
 }
 
 /// Run a command and require a successful exit status.
 fn run_command_status(command: &str, args: &[&str]) -> Result<(), String> {
+    debug!("Running command status: '{}' with args {:?}", command, args);
     let status = Command::new(command)
         .args(args)
         .status()
@@ -466,26 +596,32 @@ fn parse_cli_options() -> Result<CliOptions, String> {
 
 #[cfg(windows)]
 fn resolve_mise_bin() -> Result<String, String> {
+    debug!("Resolving mise binary via which crate on Windows");
     let resolved = which::which("mise")
         .map_err(|err| format!("Failed to resolve mise binary path via which crate: {err}"))?;
+    debug!("Resolved mise binary to '{}'", resolved.display());
     Ok(resolved.to_string_lossy().to_string())
 }
 
 #[cfg(not(windows))]
 fn resolve_mise_bin() -> Result<String, String> {
+    debug!("Resolving mise binary via 'type -a mise'");
     let output = run_command_capture("sh", &["-lc", "type -a mise"])?;
     for line in output.lines() {
         let trimmed = line.trim();
         if let Some((_, path_part)) = trimmed.split_once(" is /") {
             let candidate = format!("/{}", path_part.trim());
             if Path::new(&candidate).is_file() {
+                debug!("Resolved mise binary from type -a to '{}'", candidate);
                 return Ok(candidate);
             }
         }
     }
+    debug!("Falling back to which crate for mise resolution");
     let resolved = which::which("mise").map_err(|err| {
         format!("Failed to resolve mise binary path via type -a or which crate: {err}")
     })?;
+    debug!("Resolved mise binary from which crate to '{}'", resolved.display());
     Ok(resolved.to_string_lossy().to_string())
 }
 
@@ -507,14 +643,21 @@ fn configure_shell_profile() -> Result<(), String> {
     #[cfg(not(windows))]
     {
         let home = env::var("HOME").map_err(|_| "HOME is not set".to_string())?;
+        debug!("Configuring non-Windows profiles under HOME='{}'", home);
         let shims_path_line =
             r#"export PATH="${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}/shims:$PATH""#;
 
         for profile_path in resolve_non_interactive_profiles(&home) {
+            debug!("Checking non-interactive profile '{}'", profile_path.display());
             ensure_profile_line(&profile_path, shims_path_line)?;
         }
 
         for (shell_name, profile_path) in resolve_interactive_profiles(&home) {
+            debug!(
+                "Checking interactive profile '{}' for shell '{}'",
+                profile_path.display(),
+                shell_name
+            );
             let activation_line = format!(r#"eval "$(mise activate {shell_name})""#);
             ensure_profile_line(&profile_path, &activation_line)?;
         }
@@ -584,6 +727,13 @@ fn ensure_profile_line(profile_path: &Path, line: &str) -> Result<(), String> {
     }
 
     let existing = fs::read_to_string(profile_path).unwrap_or_default();
+    debug_lazy(|| {
+        format!(
+            "Profile before update '{}':\n{}",
+            profile_path.display(),
+            existing
+        )
+    });
     if existing.lines().any(|existing_line| existing_line == line) {
         info!(
             "Profile line already exists in '{}'",
@@ -609,6 +759,15 @@ fn ensure_profile_line(profile_path: &Path, line: &str) -> Result<(), String> {
             err
         )
     })?;
+    debug_lazy(|| {
+        let mut after = existing.clone();
+        if !after.ends_with('\n') && !after.is_empty() {
+            after.push('\n');
+        }
+        after.push_str(line);
+        after.push('\n');
+        format!("Profile after update '{}':\n{}", profile_path.display(), after)
+    });
     info!("Updated profile '{}'", profile_path.display());
     Ok(())
 }

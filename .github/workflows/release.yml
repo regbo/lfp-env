@@ -37,6 +37,8 @@ jobs:
   unix-tests:
     needs: discover-unix-tests
     runs-on: ubuntu-latest
+    env:
+      LOG_LEVEL: debug
     strategy:
       fail-fast: false
       matrix:
@@ -81,6 +83,8 @@ jobs:
     needs: detect-windows-tests
     if: needs.detect-windows-tests.outputs.has_windows_tests == 'true'
     runs-on: windows-latest
+    env:
+      LOG_LEVEL: debug
     strategy:
       fail-fast: false
       matrix:
