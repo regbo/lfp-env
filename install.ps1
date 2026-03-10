@@ -1,6 +1,28 @@
 $toolSpec = if ($env:LFP_ENV_TOOL_SPEC) { $env:LFP_ENV_TOOL_SPEC } else { "github:regbo/lfp-env" }
 $cargoInstall = if ($env:LFP_ENV_CARGO_INSTALL) { $env:LFP_ENV_CARGO_INSTALL } else { "0" }
 $disableRun = if ($env:LFP_ENV_DISABLE_RUN) { $env:LFP_ENV_DISABLE_RUN } else { "0" }
+
+function Update-SessionExports {
+    param([object[]]$Lines)
+
+    foreach ($lineObject in $Lines) {
+        if ($null -eq $lineObject) {
+            continue
+        }
+
+        $line = [string]$lineObject
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+
+        if ($line.TrimStart().StartsWith('$env:')) {
+            Invoke-Expression $line
+        }
+
+        Write-Output $line
+    }
+}
+
 $repo = "jdx/mise"
 $api  = "https://api.github.com/repos/$repo/releases/latest"
 
@@ -58,10 +80,12 @@ if ($disableRun -eq "0") {
     if ($cargoInstall -eq "1") {
         Write-Host "Building and installing $toolSpec"
         & $misePath exec rust -- cargo install --path "." --bin lfp-env --root "$HOME/.local" --force
-        & "$HOME/.local/bin/lfp-env.exe" @args
+        $lfpOutput = & "$HOME/.local/bin/lfp-env.exe" @args
+        Update-SessionExports -Lines $lfpOutput
     } else {
         Write-Host "Installing $toolSpec"
         & $misePath use -g $toolSpec
-        & $misePath x $toolSpec -- lfp-env @args
+        $lfpOutput = & $misePath x $toolSpec -- lfp-env @args
+        Update-SessionExports -Lines $lfpOutput
     }
 }
