@@ -52,6 +52,15 @@ if ($userPath -notlike "*$binDir*") {
 $env:PATH = "$binDir;$env:PATH"
 
 
+
+
+Write-Host "Installed to $binDir"
+& (Join-Path $binDir "mise.exe") -v
+
+$misePath = Join-Path $binDir "mise.exe"
+
+(& $misePath activate pwsh) | Out-String | Invoke-Expression
+
 $profilePath = "$HOME\Documents\PowerShell\Microsoft.PowerShell_profile.ps1"
 $line = '(&mise activate pwsh) | Out-String | Invoke-Expression'
 
@@ -62,12 +71,6 @@ if (-not (Test-Path $profilePath)) {
 if (-not (Select-String -Path $profilePath -SimpleMatch $line -Quiet)) {
     Add-Content -Path $profilePath -Value $line
 }
-
-
-Write-Host "Installed to $binDir"
-& (Join-Path $binDir "mise.exe") -v
-
-$misePath = Join-Path $binDir "mise.exe"
 
 
 
