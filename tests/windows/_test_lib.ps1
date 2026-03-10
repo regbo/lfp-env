@@ -29,6 +29,22 @@ function Reset-SessionPath {
     $env:PATH = "$machinePath;$userPath"
 }
 
+function Run-InstallAndEval {
+    $installOutput = & .\install.ps1
+    foreach ($lineObject in $installOutput) {
+        if ($null -eq $lineObject) {
+            continue
+        }
+
+        $line = [string]$lineObject
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+
+        Invoke-Expression $line
+    }
+}
+
 function Invoke-Test {
     param(
         [Parameter(Mandatory = $true)][string]$Name,

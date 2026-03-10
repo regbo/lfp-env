@@ -68,7 +68,7 @@ if ($userPath -notlike "*$binDir*") {
     }
 }
 
-Add-ActivateLine -Line '$env:PATH="$env:LOCALAPPDATA/bin;$env:PATH"'
+Add-ActivateLine -Line 'if (-not ($env:PATH.Split(";") -contains "$env:LOCALAPPDATA\bin")) { $env:PATH="$env:LOCALAPPDATA\bin;$env:PATH" }'
 
 Write-Stderr "Installed to $binDir"
 & (Join-Path $binDir "mise.exe") -v 2>&1 | ForEach-Object { Write-Stderr "$_" }

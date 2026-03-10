@@ -5,8 +5,8 @@ $ErrorActionPreference = "Stop"
 
 Invoke-Test -Name "idempotent repeated run" -Body {
     Write-Host "[runner] running install.ps1 twice"
-    & .\install.ps1
-    & .\install.ps1
+    Run-InstallAndEval
+    Run-InstallAndEval
     Write-Host "[runner] validating mise still exists"
     mise -v | Out-Null
 }
