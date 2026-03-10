@@ -1,4 +1,4 @@
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 use log::{debug, info, warn, Level, LevelFilter};
 use std::io::Write;
 use std::process::Command;
