@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 $envToolSpec = if ([string]::IsNullOrWhiteSpace($env:ENV_TOOL_SPEC)) { "github:regbo/lfp-env" } else { $env:ENV_TOOL_SPEC }
-$localSetupValue = if ([string]::IsNullOrWhiteSpace($env:ENV_LOCAL_INSTALL)) { "false" } else { $env:ENV_LOCAL_INSTALL }
+$cargoInstallValue = if ([string]::IsNullOrWhiteSpace($env:LFP_ENV_CARGO_INSTALL)) { "0" } else { $env:LFP_ENV_CARGO_INSTALL }
 
 function Is-TrueFlag {
     param([string]$Value)
@@ -56,9 +56,9 @@ if (-not (Get-Command mise -ErrorAction SilentlyContinue)) {
 }
 
 $miseExecutable = Resolve-MiseCommand
-$isLocalSetup = Is-TrueFlag -Value $localSetupValue
+$useCargoInstall = Is-TrueFlag -Value $cargoInstallValue
 
-if ($isLocalSetup) {
+if ($useCargoInstall) {
     & $miseExecutable exec rust -- cargo install --path . --bin lfp-env --root "$HOME/.local" --force
     $binaryPath = Join-Path $HOME ".local\bin\lfp-env.exe"
     $lfpOutput = & $binaryPath --mise_bin $miseExecutable @args
