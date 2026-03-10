@@ -59,7 +59,6 @@ Write-Host "Installed to $binDir"
 
 $misePath = Join-Path $binDir "mise.exe"
 
-(& $misePath activate pwsh) | Out-String | Invoke-Expression
 
 $profilePath = "$HOME\Documents\PowerShell\Microsoft.PowerShell_profile.ps1"
 $line = '(&mise activate pwsh) | Out-String | Invoke-Expression'
@@ -73,7 +72,6 @@ if (-not (Select-String -Path $profilePath -SimpleMatch $line -Quiet)) {
 }
 
 
-
 if ($disableRun -eq "0") {
     if ($cargoInstall -eq "1") {
         Write-Host "Building and installing $toolSpec"
@@ -85,3 +83,5 @@ if ($disableRun -eq "0") {
         $lfpOutput = & $misePath x $toolSpec -- lfp-env @args
     }
 }
+
+& $misePath reshim
