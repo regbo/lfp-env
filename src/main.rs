@@ -2,7 +2,6 @@ use clap::{ArgAction, Parser, ValueEnum};
 use log::{debug, info, warn, Level, LevelFilter};
 use std::collections::BTreeSet;
 use std::env;
-use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -28,9 +27,6 @@ struct CliOptions {
     /// Environment override passed as KEY:VALUE.
     #[arg(long = "env", value_name = "KEY:VALUE", value_parser = parse_env_pair, action = ArgAction::Append)]
     env_overrides: Vec<(String, String)>,
-    /// Whether to write profile updates. Defaults to true.
-    #[arg(long = "profile", default_value_t = true)]
-    profile: bool,
     /// Force exporting the mise parent directory into PATH output.
     #[arg(long = "export-path", action = ArgAction::SetTrue)]
     export_path: bool,
@@ -79,8 +75,8 @@ fn main() -> Result<(), String> {
     let options = parse_cli_options()?;
     init_logger(options.log_level);
     debug!(
-        "CLI options resolved: profile={}, export_path={}, export_path_format={:?}, log_level={:?}",
-        options.profile, options.export_path, options.export_path_format, options.log_level
+        "CLI options resolved: export_path={}, export_path_format={:?}, log_level={:?}",
+        options.export_path, options.export_path_format, options.log_level
     );
     let mise_bin = match options.mise_bin.clone() {
         Some(path) => path,
@@ -98,11 +94,6 @@ fn main() -> Result<(), String> {
     for program in PROGRAM_SPECS {
         info!("Checking program '{}'", program.name);
         ensure_program(program, &mise_bin)?;
-    }
-    if should_write_profile(&options) {
-        configure_shell_profile(&mise_shims_path)?;
-    } else {
-        info!("Skipping profile configuration (--profile=false)");
     }
     let export_format = resolve_export_format(options.export_path_format);
     info!("Environment program checks complete");
@@ -161,10 +152,6 @@ fn resolve_export_format(export_format: ExportFormat) -> ExportFormat {
         ExportFormat::Unix => ExportFormat::Unix,
         ExportFormat::Windows => ExportFormat::Windows,
     }
-}
-
-fn should_write_profile(options: &CliOptions) -> bool {
-    options.profile
 }
 
 fn apply_env_overrides(env_overrides: &[(String, String)]) {
@@ -607,152 +594,6 @@ fn resolve_mise_bin() -> Result<String, String> {
     })?;
     debug!("Resolved mise binary from which crate to '{}'", resolved.display());
     Ok(resolved.to_string_lossy().to_string())
-}
-
-/// Configure shell profile to include local bin path and mise activation.
-fn configure_shell_profile(mise_shims_path: &Path) -> Result<(), String> {
-    #[cfg(windows)]
-    {
-        let shims_export_dir = render_home_relative_path(mise_shims_path, ExportFormat::Windows);
-        ensure_windows_user_path_contains(mise_shims_path)?;
-        info!(
-            "Configured Windows user PATH to include '{}' (resolved path: '{}')",
-            shims_export_dir,
-            mise_shims_path.display()
-        );
-        return Ok(());
-    }
-
-    #[cfg(not(windows))]
-    {
-        let home = env::var("HOME").map_err(|_| "HOME is not set".to_string())?;
-        debug!("Configuring non-Windows profiles under HOME='{}'", home);
-        let shims_export_dir = render_home_relative_path(mise_shims_path, ExportFormat::Unix);
-        let shims_path_line = format!("export PATH=\"{shims_export_dir}:$PATH\"");
-
-        for profile_path in resolve_non_interactive_profiles(&home) {
-            debug!("Checking non-interactive profile '{}'", profile_path.display());
-            ensure_profile_line(&profile_path, &shims_path_line)?;
-        }
-
-        for (shell_name, profile_path) in resolve_interactive_profiles(&home) {
-            debug!(
-                "Checking interactive profile '{}' for shell '{}'",
-                profile_path.display(),
-                shell_name
-            );
-            let activation_line = format!(r#"eval "$(mise activate {shell_name})""#);
-            ensure_profile_line(&profile_path, &activation_line)?;
-        }
-
-        Ok(())
-    }
-}
-
-#[cfg(windows)]
-fn ensure_windows_user_path_contains(path_to_add: &Path) -> Result<(), String> {
-    let target = path_to_add.to_string_lossy().replace('\'', "''");
-    let script = format!(
-        "$target='{target}'; \
-         $current=[Environment]::GetEnvironmentVariable('Path','User'); \
-         $parts=@(); \
-         if(-not [string]::IsNullOrWhiteSpace($current)){{ \
-           $parts=$current -split ';' | Where-Object {{ -not [string]::IsNullOrWhiteSpace($_) }} \
-         }}; \
-         $normalizedTarget=$target.Trim().TrimEnd('\\').ToLowerInvariant(); \
-         $exists=$false; \
-         foreach($part in $parts){{ \
-           if($part.Trim().TrimEnd('\\').ToLowerInvariant() -eq $normalizedTarget){{ \
-             $exists=$true; break \
-           }} \
-         }}; \
-         if(-not $exists){{ \
-           if($parts.Count -gt 0){{ $newPath=\"$current;$target\" }} else {{ $newPath=$target }}; \
-           [Environment]::SetEnvironmentVariable('Path',$newPath,'User') \
-         }}"
-    );
-    run_command_status(
-        "powershell",
-        &["-NoProfile", "-NonInteractive", "-Command", &script],
-    )
-    .map_err(|err| format!("Failed to persist Windows user PATH: {err}"))
-}
-
-#[cfg(not(windows))]
-fn resolve_non_interactive_profiles(home: &str) -> Vec<PathBuf> {
-    vec![
-        Path::new(home).join(".profile"),
-        Path::new(home).join(".bash_profile"),
-        Path::new(home).join(".bash_login"),
-        Path::new(home).join(".zprofile"),
-    ]
-}
-
-#[cfg(not(windows))]
-fn resolve_interactive_profiles(home: &str) -> Vec<(&'static str, PathBuf)> {
-    vec![
-        ("bash", Path::new(home).join(".bashrc")),
-        ("zsh", Path::new(home).join(".zshrc")),
-        ("fish", Path::new(home).join(".config/fish/config.fish")),
-        ("elvish", Path::new(home).join(".elvish/rc.elv")),
-        ("nu", Path::new(home).join(".config/nushell/config.nu")),
-        ("xonsh", Path::new(home).join(".xonshrc")),
-    ]
-}
-
-#[cfg(not(windows))]
-fn ensure_profile_line(profile_path: &Path, line: &str) -> Result<(), String> {
-    if !profile_path.exists() {
-        return Ok(());
-    }
-    if !profile_path.is_file() {
-        return Ok(());
-    }
-
-    let existing = fs::read_to_string(profile_path).unwrap_or_default();
-    debug_lazy(|| {
-        format!(
-            "Profile before update '{}':\n{}",
-            profile_path.display(),
-            existing
-        )
-    });
-    if existing.lines().any(|existing_line| existing_line == line) {
-        info!(
-            "Profile line already exists in '{}'",
-            profile_path.display()
-        );
-        return Ok(());
-    }
-
-    let mut file = OpenOptions::new()
-        .append(true)
-        .open(profile_path)
-        .map_err(|err| {
-            format!(
-                "Failed to open profile file '{}': {}",
-                profile_path.display(),
-                err
-            )
-        })?;
-    writeln!(file, "{}", line).map_err(|err| {
-        format!(
-            "Failed to write profile file '{}': {}",
-            profile_path.display(),
-            err
-        )
-    })?;
-    debug_lazy(|| {
-        let mut after = existing.clone();
-        if !after.ends_with('\n') && !after.is_empty() {
-            after.push('\n');
-        }
-        after.push_str(line);
-        after.push('\n');
-        format!("Profile after update '{}':\n{}", profile_path.display(), after)
-    });
-    info!("Updated profile '{}'", profile_path.display());
-    Ok(())
 }
 
 #[cfg(test)]

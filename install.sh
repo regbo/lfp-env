@@ -1,178 +1,245 @@
 #!/bin/sh
+# Exit on command errors and unset variables.
 set -eu
 
-ENV_TOOL_SPEC="${ENV_TOOL_SPEC:-github:regbo/lfp-env}"
-ENV_LOCAL_INSTALL="${ENV_LOCAL_INSTALL:-FALSE}"
-ENV_ARGS=""
+TOOL_SPEC="${LFP_ENV_TOOL_SPEC:-github:regbo/lfp-env}"
+ACTIVATE_PROFILE="${LFP_ACTIVATE_PROFILE:-1}"
+DISABLE_RUN="${LFP_ENV_DISABLE_RUN:-0}"
+CARGO_INSTALL="${LFP_ENV_CARGO_INSTALL:-0}"
+LOG_ENABLED="${LFP_ENV_LOG_ENABLED:-1}"
+SCRIPT_DIR=$(cd -- "$(dirname -- "$0")" && pwd -P)
 
-# Return true if a string is empty or only whitespace
-is_blank() {
-  value="${1-}"
-  case "${value}" in
-    "")
-      return 0
-      ;;
-    *[![:space:]]*)
-      return 1
-      ;;
-    *)
-      return 0
-      ;;
-  esac
+ACTIVATE=""
+
+# Log a message to stderr for lightweight tracing.
+log() {
+    if [ "${LOG_ENABLED}" = "1" ]; then
+        printf "%s\n" "$*" >&2
+    fi
 }
 
-# Return true when value is "1" or "true" (case-insensitive)
-is_true_flag() {
-  value="${1-}"
-  normalized="$(printf "%s" "${value}" | tr '[:upper:]' '[:lower:]')"
-  [ "${normalized}" = "1" ] || [ "${normalized}" = "true" ]
+# Evaluate a command now and append it to the activation snippet.
+append_activate() {
+    cmd=$1
+    eval "$cmd"
+    ACTIVATE="${ACTIVATE}${cmd};"
 }
 
-# Check if a command exists on PATH
+
+# Return success when a path is an executable regular file.
 is_exec() {
-  name="${1-}"
-  if is_blank "${name}"; then
-    return 1
-  fi
-  command -v "${name}" >/dev/null 2>&1
+    FILE_PATH="${1:-}"
+    [ -n "${FILE_PATH}" ] && [ -f "${FILE_PATH}" ] && [ -x "${FILE_PATH}" ]
 }
 
-# Fetch a URL using curl or wget
+# Return the first writable directory from the provided candidates.
+writable_dir() {
+    create="$1"
+    shift
+
+    for dir in "$@"; do
+        [ -n "$dir" ] || continue
+        [ -f "$dir" ] && continue
+
+        if [ "$create" = "1" ]; then
+            mkdir -p "$dir" 2>/dev/null || true
+        fi
+
+        if [ -d "$dir" ] && [ -w "$dir" ]; then
+            printf "%s\n" "$dir"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+
+
+# Fetch a URL with curl or wget.
 http_get() {
-  url="${1-}"
-
-  if is_exec "curl"; then
-    curl -fsSL "${url}"
-    return $?
-  fi
-
-  if is_exec "wget"; then
-    wget -qO- "${url}"
-    return $?
-  fi
-
-  echo "ERROR: neither curl nor wget is available on PATH." >&2
-  exit 1
-}
-
-# Ensure a directory exists and is writable (creating it if needed)
-is_writable_dir() {
-  location="${1-}"
-  if is_blank "${location}"; then
-    return 1
-  fi
-
-  if ! mkdir -p "${location}" 2>/dev/null; then
-    return 1
-  fi
-  if [ ! -d "${location}" ] || [ ! -w "${location}" ]; then
-    return 1
-  fi
-
-  probe_file="$(mktemp "${location}/.write-probe-XXXXXX" 2>/dev/null || true)"
-  if is_blank "${probe_file}"; then
-    probe_file="${location}/.write-probe.$$"
-    if ! : > "${probe_file}" 2>/dev/null; then
-      return 1
+    url=${1:-}
+    if [ -z "$url" ]; then
+        printf "ERROR: No URL provided to http_get\n" >&2
+        return 1
     fi
-  fi
-  rm -f "${probe_file}"
-  return 0
-}
 
-# Assign and export a variable name dynamically using eval
-eval_export() {
-  env_name="${1-}"
-  value="${2-}"
-  eval "$env_name=\$value"
-  export "$env_name"
-  ENV_ARGS="${ENV_ARGS}${env_name}:${value}
-"
-}
-
-# Resolve an environment directory from candidate locations
-ensure_env_dir() {
-  env_name="${1-}"
-  shift || true
-  soft_fail=0
-  if [ "${1-}" = "-" ]; then
-    soft_fail=1
-    shift || true
-  fi
-
-  eval "env_value=\${${env_name}-}"
-  if is_writable_dir "${env_value}"; then
-    return 0
-  fi
-
-  for location in "$@"; do
-    if is_writable_dir "${location}"; then
-      eval_export "${env_name}" "${location}"
-      return 0
+    if command -v curl >/dev/null 2>&1; then
+        log "Fetching with curl: $url"
+        curl -fsSL "$url"
+        return $?
     fi
-  done
 
-  if [ "${soft_fail}" -eq 1 ]; then
-    return 0
-  fi
-
-  echo "ERROR: could not resolve a writable ${env_name} directory." >&2
-  exit 1
-}
-
-# Resolve the first executable binary path for mise from `type -a`.
-resolve_mise_bin() {
-  type_path="$(type -a mise 2>/dev/null | awk '/ is \// { sub(/^.* is /, "", $0); print; exit }')"
-  if [ -n "${type_path}" ] && [ -f "${type_path}" ] && [ -x "${type_path}" ]; then
-    printf "%s\n" "${type_path}"
-    return 0
-  fi
-  which_path="$(which mise 2>/dev/null || true)"
-  if [ -n "${which_path}" ] && [ -f "${which_path}" ] && [ -x "${which_path}" ]; then
-    printf "%s\n" "${which_path}"
-    return 0
-  fi
-  return 1
-}
-
-# Resolve HOME
-ensure_env_dir "HOME" "/home" "./.home"
-
-# Resolve TEMP on nix
-OS_NAME="$(uname -s | tr '[:upper:]' '[:lower:]')"
-if [ "${OS_NAME}" != "darwin" ]; then
-  ensure_env_dir "TMPDIR" "${TEMP-}" "${TMP-}" "/tmp" "./.tmp"
-fi
-
-
-# Ensure mise exists and resolve an executable binary path.
-MISE_BIN="$(resolve_mise_bin || true)"
-if is_blank "${MISE_BIN}"; then
-  http_get "https://mise.run" | sh 1>&2
-  MISE_BIN="$(resolve_mise_bin || true)"
-fi
-if is_blank "${MISE_BIN}" || [ ! -x "${MISE_BIN}" ]; then
-  echo "ERROR: mise installation failed." >&2
-  exit 1
-fi
-
-set -- "--mise_bin" "${MISE_BIN}" "$@"
-if [ -n "${ENV_ARGS}" ]; then
-  OLD_IFS="${IFS}"
-  IFS='
-'
-  for pair in ${ENV_ARGS}; do
-    if [ -n "${pair}" ]; then
-      set -- "$@" "--env" "${pair}"
+    if command -v wget >/dev/null 2>&1; then
+        log "Fetching with wget: $url"
+        wget -qO- "$url"
+        return $?
     fi
-  done
-  IFS="${OLD_IFS}"
+
+    printf "ERROR: neither curl nor wget is available on PATH.\n" >&2
+    exit 1
+}
+
+
+
+
+
+# Resolve and export HOME when needed.
+{
+    home_dir=$(writable_dir "1" "${HOME:-}" "/home" "/home/app")
+    if [ -z "$home_dir" ]; then
+        printf "Error: Could not find or create a writable directory for HOME.\n" >&2
+        exit 1
+    fi
+    if [ "${HOME:-}" != "$home_dir" ]; then
+        ACTIVATE_PROFILE="0"
+        log "Setting HOME to $home_dir"
+        append_activate "export HOME=${home_dir}"
+    fi
+}
+
+
+
+# Resolve and export TMPDIR when needed.
+{
+    tmp_dir=$(writable_dir "0" "${TMPDIR:-}" "${TMP:-}" "${TEMP:-}" "${TEMPDIR:-}" "/tmp" "/var/tmp" "/usr/tmp")
+    if [ -z "$tmp_dir" ]; then
+        home_tmp_dir="${HOME}/.tmp"
+        mkdir -p "${home_tmp_dir}"
+        log "Setting TMPDIR to ${home_tmp_dir}"
+        append_activate 'export TMPDIR=\${HOME}/.tmp'
+    fi
+}
+
+# Ensure mise is installed and reachable on PATH.
+{
+    MISE_BIN="$(mise x -- which mise 2>/dev/null)" || {
+        log "mise not found on PATH. Installing."
+        local_bin_dir="${HOME}/.local/bin"
+        mkdir -p "${local_bin_dir}"
+
+        case ":${PATH:-}:" in
+            *:"$local_bin_dir":*)
+                log "PATH contains $local_bin_dir"
+                ;;
+            *)
+                log "PATH updated with $local_bin_dir"
+                append_activate 'export PATH="${HOME}/.local/bin:${PATH:-}"'
+                ;;
+        esac
+
+        export MISE_INSTALL_PATH="${local_bin_dir}/mise"
+        http_get "https://mise.run" | sh >&2
+
+        MISE_BIN="$(mise x -- which mise 2>/dev/null)" || {
+            printf "ERROR: mise installation failed\n" >&2
+            exit 1
+        }
+    }
+
+    log "mise binary found: $MISE_BIN"
+}
+
+# Resolve MISE_SHIMS_DIR from `mise doctor`
+{
+    shims_raw=$(
+        mise doctor 2>/dev/null |
+        awk '/^[[:space:]]*shims:/ {print $2; exit}'
+    )
+
+    [ -n "$shims_raw" ] || {
+        printf "ERROR: could not determine mise shims directory\n" >&2
+        exit 1
+    }
+
+    case "$shims_raw" in
+        "~/"*)
+            MISE_SHIMS_DIR='${HOME}'"${shims_raw#\~}"
+            ;;
+        *)
+            MISE_SHIMS_DIR="$shims_raw"
+            ;;
+    esac
+}
+
+
+append_activate "export PATH=\"${MISE_SHIMS_DIR}:\$PATH\""
+
+
+
+if [ "${DISABLE_RUN}" = "0" ]; then
+    if [ "${CARGO_INSTALL}" = "1" ]; then
+    log "Building and installing ${TOOL_SPEC}"
+    mise exec rust -- cargo install --path "${SCRIPT_DIR}" --bin lfp-env --root "${HOME}/.local" --force 1>&2
+    "${HOME}/.local/bin/lfp-env" "$@"
+    else
+    log "Installing ${TOOL_SPEC}"
+    mise use -g "${TOOL_SPEC}" 1>&2
+    mise x "${TOOL_SPEC}" -- lfp-env "$@"
+    fi
 fi
 
-if is_true_flag "${ENV_LOCAL_INSTALL}"; then
-  "${MISE_BIN}" exec rust -- cargo install --path "." --bin lfp-env --root "${HOME}/.local" --force 1>&2
-  "${HOME}/.local/bin/lfp-env" "$@"
-else
-  "${MISE_BIN}" use -g "${ENV_TOOL_SPEC}" 1>&2
-  "${MISE_BIN}" x "${ENV_TOOL_SPEC}" -- lfp-env "$@"
+
+# Append activation for a shell into a profile file.
+append_profile_line() {
+    profile_path=$1
+    shell_name=$2
+    interactive=$3
+    create_if_missing=${4:-0}
+
+    activate_tag="#${TOOL_SPEC}-activate"
+
+    mise_parent_dir=$(dirname "$MISE_BIN")
+
+    if [ "$interactive" = "1" ]; then
+        profile_line="export PATH=\"${mise_parent_dir}:\${PATH:-}\"; eval \"\$(${MISE_BIN} activate ${shell_name})\""
+    else
+        profile_line="export PATH=\"${mise_parent_dir}:${MISE_SHIMS_DIR}:\${PATH:-}\""
+    fi
+
+    if [ ! -f "$profile_path" ]; then
+        if [ "$create_if_missing" = "1" ]; then
+            : > "$profile_path"
+            log "Created profile $profile_path"
+        else
+            return 0
+        fi
+    fi
+
+    tmp_file="${profile_path}.tmp.$$"
+
+    while IFS= read -r existing_line || [ -n "$existing_line" ]; do
+        case "$existing_line" in
+            *"$activate_tag")
+                continue
+                ;;
+            *)
+                printf '%s\n' "$existing_line"
+                ;;
+        esac
+    done < "$profile_path" > "$tmp_file"
+
+    printf '%s %s\n' "$profile_line" "$activate_tag" >> "$tmp_file"
+
+    if ! cmp -s "$profile_path" "$tmp_file"; then
+        mv "$tmp_file" "$profile_path"
+        log "Updated activation in $profile_path"
+    else
+        rm -f "$tmp_file"
+        log "No changes to $profile_path"
+    fi
+}
+
+if [ "${ACTIVATE_PROFILE}" = "1" ]; then
+    append_profile_line "${HOME}/.profile" bash 0 1
+    append_profile_line "${HOME}/.bash_profile" bash 0
+    append_profile_line "${HOME}/.zshenv" zsh 0
+    append_profile_line "${HOME}/.zprofile" zsh 0
+    append_profile_line "${HOME}/.bashrc" bash 1
+    append_profile_line "${HOME}/.zshrc" zsh 1
 fi
+
+
+
+# Print export statements for caller eval.
+printf '%s\n' "$ACTIVATE"
