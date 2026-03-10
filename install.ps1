@@ -71,7 +71,7 @@ if ($userPath -notlike "*$binDir*") {
 Add-ActivateLine -Line '$env:PATH="$env:LOCALAPPDATA/bin;$env:PATH"'
 
 Write-Stderr "Installed to $binDir"
-& (Join-Path $binDir "mise.exe") -v 1>&2
+& (Join-Path $binDir "mise.exe") -v 2>&1 | ForEach-Object { Write-Stderr "$_" }
 
 $misePath = Join-Path $binDir "mise.exe"
 
@@ -91,11 +91,11 @@ if (-not (Select-String -Path $profilePath -SimpleMatch $line -Quiet)) {
 if ($disableRun -eq "0") {
     if ($cargoInstall -eq "1") {
         Write-Stderr "Building and installing $toolSpec"
-        & $misePath exec rust -- cargo install --path "." --bin lfp-env --root "$HOME/.local" --force 1>&2
+        & $misePath exec rust -- cargo install --path "." --bin lfp-env --root "$HOME/.local" --force 2>&1 | ForEach-Object { Write-Stderr "$_" }
         $lfpOutput = & "$HOME/.local/bin/lfp-env.exe" @args
     } else {
         Write-Stderr "Installing $toolSpec"
-        & $misePath use -g $toolSpec 1>&2
+        & $misePath use -g $toolSpec 2>&1 | ForEach-Object { Write-Stderr "$_" }
         $lfpOutput = & $misePath x $toolSpec -- lfp-env @args
     }
 }
