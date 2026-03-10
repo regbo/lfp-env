@@ -13,107 +13,55 @@ permissions:
   contents: write
 
 jobs:
-  discover-unix-tests:
-    runs-on: ubuntu-latest
-    outputs:
-      scripts: ${{ steps.discover.outputs.scripts }}
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Discover unix test scripts
-        id: discover
-        shell: bash
-        run: |
-          set -euo pipefail
-          scripts_json="$(
-            python -c 'import glob, json, sys; scripts = sorted(glob.glob("tests/unix/test_*.sh")); (print("No unix test scripts found in tests/unix.", file=sys.stderr), sys.exit(1)) if not scripts else print(json.dumps(scripts))'
-          )"
-          echo "scripts=${scripts_json}" >> "$GITHUB_OUTPUT"
-
   unix-tests:
-    needs: discover-unix-tests
     runs-on: ubuntu-latest
-    env:
-      LOG_LEVEL: debug
-    strategy:
-      fail-fast: false
-      matrix:
-        script: ${{ fromJson(needs.discover-unix-tests.outputs.scripts) }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Run unix test script
+      - name: Install mise
         shell: bash
         run: |
           set -euo pipefail
-          echo "Running ${{ matrix.script }}"
-          bash "${{ matrix.script }}"
+          curl https://mise.run | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-  detect-windows-tests:
-    runs-on: ubuntu-latest
-    outputs:
-      has_windows_tests: ${{ steps.detect.outputs.has_windows_tests }}
-      scripts: ${{ steps.detect.outputs.scripts }}
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Detect windows test scripts
-        id: detect
+      - name: Prebuild test binary
         shell: bash
-        run: |
-          set -euo pipefail
-          scripts_json="$(
-            python -c 'import glob, json; patterns = ["tests/windows/test_*.ps1", "tests/windows/test_*.bat", "tests/windows/test_*.cmd"]; scripts = sorted(set(path for pattern in patterns for path in glob.glob(pattern))); print(json.dumps(scripts))'
-          )"
-          if [ "${scripts_json}" != "[]" ]; then
-            echo "has_windows_tests=true" >> "$GITHUB_OUTPUT"
-            echo "scripts=${scripts_json}" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_windows_tests=false" >> "$GITHUB_OUTPUT"
-            echo "scripts=[]" >> "$GITHUB_OUTPUT"
-          fi
+        run: mise exec rust -- cargo build --bin lfp-env
+
+      - name: Run unix Rust tests
+        shell: bash
+        run: mise exec rust -- cargo test
 
   windows-tests:
-    needs: detect-windows-tests
-    if: needs.detect-windows-tests.outputs.has_windows_tests == 'true'
     runs-on: windows-latest
-    env:
-      LOG_LEVEL: debug
-    strategy:
-      fail-fast: false
-      matrix:
-        script: ${{ fromJson(needs.detect-windows-tests.outputs.scripts) }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Run windows test script
+      - name: Install mise
         shell: pwsh
         run: |
-          $scriptPath = "${{ matrix.script }}"
-          Write-Host "Running $scriptPath"
-          switch ([System.IO.Path]::GetExtension($scriptPath).ToLowerInvariant()) {
-            ".ps1" { pwsh -NoProfile -File $scriptPath }
-            ".bat" { cmd /c $scriptPath }
-            ".cmd" { cmd /c $scriptPath }
-            default { throw "Unsupported script extension: $([System.IO.Path]::GetExtension($scriptPath))" }
-          }
+          irm -useb https://mise.run | iex
+          Add-Content -Path $env:GITHUB_PATH -Value "$env:USERPROFILE\AppData\Local\mise\bin"
+
+      - name: Prebuild test binary
+        shell: pwsh
+        run: mise exec rust -- cargo build --bin lfp-env
+
+      - name: Run windows Rust tests
+        shell: pwsh
+        run: mise exec rust -- cargo test
 
   build:
     needs:
       - unix-tests
-      - detect-windows-tests
       - windows-tests
     if: |
       always() &&
       needs.unix-tests.result == 'success' &&
-      (
-        needs.detect-windows-tests.outputs.has_windows_tests != 'true' ||
-        needs.windows-tests.result == 'success'
-      )
+      needs.windows-tests.result == 'success'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

@@ -1,7 +1,27 @@
-# IDE/editor files
+# Rust
+/target/
+Cargo.lock
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+
+# IDE / editors
 .vscode/
 .idea/
 .cursor/
 .fleet/
 .vs/
 *.code-workspace
+
+# Rust tooling / misc
+**/*.rs.bk
+*.pdb
+*.rlib
+*.rmeta
+*.dSYM

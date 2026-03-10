@@ -1,3 +1,6 @@
+[tools]
+rust = "stable"
+
 [env]
 PROJECT_NAME = "{{ config_root | basename }}"
 

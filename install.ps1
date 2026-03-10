@@ -1,173 +1,117 @@
-$toolSpec = if ($env:LFP_ENV_TOOL_SPEC) { $env:LFP_ENV_TOOL_SPEC } else { "github:regbo/lfp-env" }
-$activateProfile = if ($env:LFP_ACTIVATE_PROFILE) { $env:LFP_ACTIVATE_PROFILE } else { "1" }
-$cargoInstall = if ($env:LFP_ENV_CARGO_INSTALL) { $env:LFP_ENV_CARGO_INSTALL } else { "0" }
-$disableRun = if ($env:LFP_ENV_DISABLE_RUN) { $env:LFP_ENV_DISABLE_RUN } else { "0" }
-$loggingEnabled = if ($env:LFP_ENV_LOGGING_ENABLED) { $env:LFP_ENV_LOGGING_ENABLED } else { "1" }
-$logPrefix = "[lfp-env-install]"
-$repo = "jdx/mise"
-$api  = "https://api.github.com/repos/$repo/releases/latest"
+# Exit on errors and undefined variables
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
 
-function Write-Stderr {
-    param([Parameter(Mandatory = $true)][string]$Message)
+$REPO = $env:LFP_ENV_REPO
+if (-not $REPO) { $REPO = "regbo/lfp-env" }
 
-    if ($loggingEnabled -ne "1") {
-        return
+$VERSION = $env:LFP_ENV_VERSION
+$MIN_VERSION = $env:LFP_ENV_MIN_VERSION
+$INSTALL_PATH = $env:LFP_ENV_INSTALL_PATH
+
+function log {
+    param([string]$msg)
+    Write-Error "[lfp-env-install] $msg"
+}
+
+function is_exec {
+    param([string]$path)
+    if (-not $path) { return $false }
+    return (Test-Path $path -PathType Leaf)
+}
+
+function version_ge {
+    param($a,$b)
+    if ($a -eq $b) { return $true }
+    $sorted = @($a,$b) | Sort-Object {[version]$_}
+    return $sorted[0] -eq $b
+}
+
+function detect_asset_name {
+    $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+
+    switch ($arch) {
+        "Arm64" { $arch_target = "aarch64" }
+        "X64"   { $arch_target = "x86_64" }
+        default { throw "ERROR: unsupported architecture: $arch" }
     }
 
-    [Console]::Error.WriteLine("$logPrefix $Message")
+    return "lfp-env-$arch_target-pc-windows-msvc.zip"
 }
 
-function Add-ActivateLine {
-    param([Parameter(Mandatory = $true)][string]$Line)
+$DEFAULT_INSTALL_PATH = Join-Path $env:LOCALAPPDATA "bin\lfp-env.exe"
+if ($INSTALL_PATH) { $LFP_ENV_BIN = $INSTALL_PATH } else { $LFP_ENV_BIN = $DEFAULT_INSTALL_PATH }
 
-    Write-Stderr "Activation output: $Line"
-    Write-Output $Line
+$BIN_DIR = Split-Path $LFP_ENV_BIN
+New-Item -ItemType Directory -Force -Path $BIN_DIR | Out-Null
+
+log "Repo: $REPO"
+log "Version: $(if($VERSION){$VERSION}else{'latest'})"
+log "Install path: $LFP_ENV_BIN"
+
+$TEMP_DIR = $null
+$INSTALL_REQUIRED = $false
+
+function cleanup {
+    if ($TEMP_DIR -and (Test-Path $TEMP_DIR)) {
+        Remove-Item -Recurse -Force $TEMP_DIR
+    }
 }
 
-function Find-ExistingMisePath {
-    $commandNames = @("mise", "mise.exe")
+try {
 
-    foreach ($commandName in $commandNames) {
-        $command = Get-Command $commandName -ErrorAction SilentlyContinue
-        if ($null -eq $command) {
-            continue
+    if (-not (is_exec $LFP_ENV_BIN)) {
+        $INSTALL_REQUIRED = $true
+    }
+    else {
+        $CURRENT_VERSION = (& $LFP_ENV_BIN --version 2>$null)
+
+        if ($VERSION -and $MIN_VERSION) {
+            if (-not (version_ge $VERSION $MIN_VERSION)) {
+                throw "ERROR: VERSION ($VERSION) does not satisfy MIN_VERSION ($MIN_VERSION)"
+            }
         }
 
-        $source = $command.Source
-        if ([string]::IsNullOrWhiteSpace($source)) {
-            continue
+        if ($VERSION) {
+            if ($CURRENT_VERSION -ne $VERSION) { $INSTALL_REQUIRED = $true }
         }
-
-        if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
-            continue
-        }
-
-        Write-Stderr "Discovered existing mise command '$commandName' at $source"
-        & $source -v 2>&1 | ForEach-Object { Write-Stderr "$_" }
-        if ($LASTEXITCODE -eq 0) {
-            return $source
+        elseif ($MIN_VERSION) {
+            if (-not (version_ge $CURRENT_VERSION $MIN_VERSION)) { $INSTALL_REQUIRED = $true }
         }
     }
 
-    return $null
-}
+    if ($INSTALL_REQUIRED) {
 
-$setupMise = $true
-$existingMisePath = Find-ExistingMisePath
-if (-not [string]::IsNullOrWhiteSpace($existingMisePath)) {
-    Write-Stderr "Using existing mise install at $existingMisePath"
-    $setupMise = $false
-}
+        $ASSET_NAME = detect_asset_name
 
-
-
-
-$release = Invoke-RestMethod -Uri $api -Headers @{ "User-Agent" = "powershell" }
-$tag = $release.tag_name
-
-$arch = if ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -eq "Arm64") {
-    "arm64"
-} else {
-    "x64"
-}
-
-$filename = "mise-$tag-windows-$arch.zip"
-$url = "https://github.com/$repo/releases/download/$tag/$filename"
-
-$temp = Join-Path $env:TEMP $filename
-$binDir = Join-Path $env:LOCALAPPDATA "bin"
-$misePath = Join-Path $binDir "mise.exe"
-$miseShimPath = Join-Path $binDir "mise-shim.exe"
-$localCargoRoot = Join-Path $HOME ".local"
-$localCargoBin = Join-Path $HOME ".local\bin"
-$binDirActivateLine = "if (-not (`$env:PATH.Split(';') -contains `"$binDir`")) { `$env:PATH=`"$binDir;`$env:PATH`" }"
-$shimsActivateLine = '$miseShimActivation = (& mise activate --shims pwsh | Out-String).Trim(); if (-not [string]::IsNullOrWhiteSpace($miseShimActivation)) { Invoke-Expression $miseShimActivation }'
-$localCargoBinActivateLine = "if (-not (`$env:PATH.Split(';') -contains `"$localCargoBin`")) { `$env:PATH=`"$localCargoBin;`$env:PATH`" }"
-
-if ($setupMise) {
-    Write-Stderr "Downloading $url"
-    Invoke-WebRequest -Uri $url -OutFile $temp
-    Write-Stderr "Preparing $binDir"
-    New-Item -ItemType Directory -Force $binDir | Out-Null
-
-    $extract = Join-Path $env:TEMP "mise-extract"
-    Write-Stderr "Using download file $temp"
-    Write-Stderr "Using extract directory $extract"
-    Remove-Item $extract -Recurse -Force -ErrorAction SilentlyContinue
-    Expand-Archive -Path $temp -DestinationPath $extract -Force
-
-    $miseExe = Get-ChildItem -Path $extract -Recurse -Filter "mise.exe" | Select-Object -First 1
-    $shimExe = Get-ChildItem -Path $extract -Recurse -Filter "mise-shim.exe" | Select-Object -First 1
-
-    if (-not $miseExe) {
-        throw "mise.exe not found in archive"
-    }
-
-    Copy-Item $miseExe.FullName $misePath -Force
-    Write-Stderr "Copied $($miseExe.FullName) to $misePath"
-
-    if ($shimExe) {
-        Copy-Item $shimExe.FullName $miseShimPath -Force
-        Write-Stderr "Copied $($shimExe.FullName) to $miseShimPath"
-    }
-
-    $userPath = [Environment]::GetEnvironmentVariable("PATH","User")
-    Write-Stderr "Discovered user PATH: $userPath"
-
-    if ($userPath -notlike "*$binDir*") {
-        Write-Stderr "Adding $binDir to PATH"
-
-        [Environment]::SetEnvironmentVariable("PATH", "$binDir;$userPath", "User")
-
-        if ($env:PATH -notlike "*$binDir*") {
-            $env:PATH = "$binDir;$env:PATH"
+        if ($VERSION) {
+            $RELEASE_URL = "https://github.com/$REPO/releases/download/v$VERSION/$ASSET_NAME"
+        } else {
+            $RELEASE_URL = "https://github.com/$REPO/releases/latest/download/$ASSET_NAME"
         }
-    }
-}
 
-Add-ActivateLine -Line $binDirActivateLine
-Add-ActivateLine -Line $shimsActivateLine
+        $TEMP_DIR = Join-Path ([System.IO.Path]::GetTempPath()) ("lfp-env-install-" + [guid]::NewGuid())
+        New-Item -ItemType Directory -Path $TEMP_DIR | Out-Null
 
-if ($setupMise) {
-    Write-Stderr "Installed to $binDir"
-    & $misePath -v 2>&1 | ForEach-Object { Write-Stderr "$_" }
-}
+        $ARCHIVE_PATH = Join-Path $TEMP_DIR $ASSET_NAME
 
-if (-not $setupMise) {
-    $misePath = $existingMisePath
-}
+        log "Downloading $RELEASE_URL"
+        Invoke-WebRequest -Uri $RELEASE_URL -OutFile $ARCHIVE_PATH
 
-Write-Stderr "Discovered mise path: $misePath"
-Write-Stderr "Discovered mise shim path: $miseShimPath"
-
-if ($setupMise -and $activateProfile -eq "1") {
-    $profilePath = "$HOME\Documents\PowerShell\Microsoft.PowerShell_profile.ps1"
-    $line = '$miseShimActivation = (& mise activate --shims pwsh | Out-String).Trim(); if (-not [string]::IsNullOrWhiteSpace($miseShimActivation)) { Invoke-Expression $miseShimActivation }'
-    Write-Stderr "Discovered profile path: $profilePath"
-
-    if (-not (Test-Path $profilePath)) {
-        New-Item -ItemType File -Force $profilePath | Out-Null
-        Write-Stderr "Created profile $profilePath"
+        $EXTRACT_DIR = Join-Path $TEMP_DIR "extract"
+        Expand-Archive -Path $ARCHIVE_PATH -DestinationPath $EXTRACT_DIR -Force
+        $EXTRACTED_BIN = Join-Path $EXTRACT_DIR "lfp-env.exe"
+        if (-not (Test-Path $EXTRACTED_BIN)) {
+            throw "ERROR: extracted archive did not contain lfp-env.exe"
+        }
+        Copy-Item $EXTRACTED_BIN $LFP_ENV_BIN -Force
+        log "Installed lfp-env to $LFP_ENV_BIN"
     }
 
-    if (-not (Select-String -Path $profilePath -SimpleMatch $line -Quiet)) {
-        Add-Content -Path $profilePath -Value $line
-        Write-Stderr "Updated profile $profilePath"
-    } else {
-        Write-Stderr "No changes to $profilePath"
-    }
+    $env:LFP_ENV_INSTALLER_MODE = "1"
+    & $LFP_ENV_BIN @args
+    exit $LASTEXITCODE
 }
-
-if ($disableRun -eq "0") {
-    if ($cargoInstall -eq "1") {
-        Write-Stderr "Building and installing $toolSpec"
-        & $misePath exec rust -- cargo install --path "." --bin lfp-env --root $localCargoRoot --force 2>&1 | ForEach-Object { Write-Stderr "$_" }
-        Write-Stderr "Discovered local cargo bin directory: $localCargoBin"
-        Add-ActivateLine -Line $localCargoBinActivateLine
-        & "$localCargoBin/lfp-env.exe" @args
-    } else {
-        Write-Stderr "Installing $toolSpec"
-        & $misePath use -g $toolSpec 2>&1 | ForEach-Object { Write-Stderr "$_" }
-        & $misePath x $toolSpec -- lfp-env @args
-    }
+finally {
+    cleanup
 }

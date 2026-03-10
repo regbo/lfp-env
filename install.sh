@@ -1,263 +1,138 @@
 #!/bin/sh
-# Exit on command errors and unset variables.
 set -eu
 
-TOOL_SPEC="${LFP_ENV_TOOL_SPEC:-github:regbo/lfp-env}"
-ACTIVATE_PROFILE="${LFP_ACTIVATE_PROFILE:-1}"
-DISABLE_RUN="${LFP_ENV_DISABLE_RUN:-0}"
-CARGO_INSTALL="${LFP_ENV_CARGO_INSTALL:-0}"
-LOGGING_ENABLED="${LFP_ENV_LOGGING_ENABLED:-1}"
-LOG_PREFIX="[lfp-env-install]"
+REPO="${LFP_ENV_REPO:-regbo/lfp-env}"
+VERSION="${LFP_ENV_VERSION:-}"
+MIN_VERSION="${LFP_ENV_MIN_VERSION:-}"
+INSTALL_PATH="${LFP_ENV_INSTALL_PATH:-}"
 
-ACTIVATE=""
-
-# Log a message to stderr for lightweight tracing.
 log() {
-    [ "${LOGGING_ENABLED}" = "1" ] || return 0
-    printf "%s %s\n" "${LOG_PREFIX}" "$*" >&2
+    printf "%s %s\n" "[lfp-env-install]" "$*" >&2
 }
 
-# Evaluate a command now and append it to the activation snippet.
-append_activate() {
-    cmd=$1
-    log "Activation output: $cmd"
-    eval "$cmd"
-    ACTIVATE="${ACTIVATE}${cmd};"
-}
-
-
-# Return success when a path is an executable regular file.
 is_exec() {
-    FILE_PATH="${1:-}"
-    [ -n "${FILE_PATH}" ] && [ -f "${FILE_PATH}" ] && [ -x "${FILE_PATH}" ]
+    file_path="${1:-}"
+    [ -n "$file_path" ] && [ -f "$file_path" ] && [ -x "$file_path" ]
 }
 
-# Return the first writable directory from the provided candidates.
-writable_dir() {
-    create="$1"
-    shift
-
-    for dir in "$@"; do
-        [ -n "$dir" ] || continue
-        [ -f "$dir" ] && continue
-
-        if [ "$create" = "1" ]; then
-            mkdir -p "$dir" 2>/dev/null || true
-        fi
-
-        if [ -d "$dir" ] && [ -w "$dir" ]; then
-            printf "%s\n" "$dir"
-            return 0
-        fi
-    done
-
-    return 1
+version_ge() {
+    [ "$1" = "$2" ] && return 0
+    first="$(printf "%s\n%s\n" "$1" "$2" | sort -V | head -n1)"
+    [ "$first" = "$2" ]
 }
 
-# Render a path using ${HOME} when it lives under HOME.
-home_relative_path() {
-    path_value="${1:-}"
-
-    case "$path_value" in
-        "$HOME")
-            printf '%s\n' '${HOME}'
-            ;;
-        "$HOME"/*)
-            printf '${HOME}%s\n' "${path_value#"$HOME"}"
-            ;;
-        *)
-            printf '%s\n' "$path_value"
-            ;;
-    esac
-}
-
-
-# Resolve an executable path by command name.
-bin_path() {
-    program_name="${1:-}"
-    if [ -z "$program_name" ]; then
-        return 1
-    fi
-
-    # First try POSIX type output.
-    type_path="$(type "$program_name" 2>/dev/null | awk '/ is \// { sub(/^.* is /, "", $0); print; exit }' || true)"
-    if is_exec "${type_path}"; then
-        printf "%s\n" "${type_path}"
+resolve_home_dir() {
+    if [ -n "${HOME:-}" ]; then
+        printf "%s\n" "$HOME"
         return 0
     fi
-
-    # Fall back to which when available.
-    which_path="$(which "$program_name" 2>/dev/null || true)"
-    if is_exec "${which_path}"; then
-        printf "%s\n" "${which_path}"
-        return 0
-    fi
-
-    return 1
+    mkdir -p "./home"
+    printf "%s\n" "$(pwd)/home"
 }
 
-
-# Fetch a URL with curl or wget.
-http_get() {
-    url=${1:-}
-    if [ -z "$url" ]; then
-        printf "ERROR: No URL provided to http_get\n" >&2
-        return 1
-    fi
+download_file() {
+    url=$1
+    destination=$2
 
     if command -v curl >/dev/null 2>&1; then
-        log "Fetching with curl: $url"
-        curl -fsSL "$url"
-        return $?
+        log "Downloading $url"
+        curl -fsSL "$url" -o "$destination"
+        return 0
     fi
 
     if command -v wget >/dev/null 2>&1; then
-        log "Fetching with wget: $url"
-        wget -qO- "$url"
-        return $?
+        log "Downloading $url"
+        wget -qO "$destination" "$url"
+        return 0
     fi
 
     printf "ERROR: neither curl nor wget is available on PATH.\n" >&2
     exit 1
 }
 
+detect_asset_name() {
+    kernel_name=$(uname -s)
+    machine_name=$(uname -m)
 
+    case "$kernel_name" in
+        Linux)  os_target="unknown-linux-gnu" ;;
+        Darwin) os_target="apple-darwin" ;;
+        *) printf "ERROR: unsupported operating system: %s\n" "$kernel_name" >&2; exit 1 ;;
+    esac
 
-# Resolve and export HOME when needed.
-{
-    home_dir=$(writable_dir "1" "${HOME:-}" "/home" "/home/app")
-    if [ -z "$home_dir" ]; then
-        printf "Error: Could not find or create a writable directory for HOME.\n" >&2
-        exit 1
-    fi
-    log "Discovered HOME directory: $home_dir"
-    if [ "${HOME:-}" != "$home_dir" ]; then
-        ACTIVATE_PROFILE="0"
-        log "Setting HOME to $home_dir"
-        append_activate "export HOME=${home_dir}"
+    case "$machine_name" in
+        x86_64|amd64) arch_target="x86_64" ;;
+        arm64|aarch64) arch_target="aarch64" ;;
+        *) printf "ERROR: unsupported architecture: %s\n" "$machine_name" >&2; exit 1 ;;
+    esac
+
+    printf "lfp-env-%s-%s.tar.gz\n" "$arch_target" "$os_target"
+}
+
+HOME="$(resolve_home_dir)"
+export HOME
+
+DEFAULT_INSTALL_PATH="${HOME}/.local/bin/lfp-env"
+LFP_ENV_BIN="${INSTALL_PATH:-$DEFAULT_INSTALL_PATH}"
+BIN_DIR="$(dirname "$LFP_ENV_BIN")"
+
+mkdir -p "$BIN_DIR"
+
+log "Repo: $REPO"
+log "Version: ${VERSION:-latest}"
+log "Install path: $LFP_ENV_BIN"
+
+TEMP_DIR=""
+
+cleanup() {
+    if [ -n "$TEMP_DIR" ] && [ -d "$TEMP_DIR" ]; then
+        rm -rf "$TEMP_DIR"
     fi
 }
 
+trap cleanup EXIT HUP INT TERM
 
+INSTALL_REQUIRED=0
 
-# Resolve and export TMPDIR when needed.
-{
-    tmp_dir=$(writable_dir "0" "${TMPDIR:-}" "${TMP:-}" "${TEMP:-}" "${TEMPDIR:-}" "/tmp" "/var/tmp" "/usr/tmp")
-    if [ -z "$tmp_dir" ]; then
-        home_tmp_dir="${HOME}/.tmp"
-        mkdir -p "${home_tmp_dir}"
-        log "Created TMPDIR directory: ${home_tmp_dir}"
-        log "Setting TMPDIR to ${home_tmp_dir}"
-        append_activate 'export TMPDIR=\${HOME}/.tmp'
-    else
-        log "Discovered TMPDIR directory: $tmp_dir"
-    fi
-}
+if ! is_exec "$LFP_ENV_BIN"; then
+    INSTALL_REQUIRED=1
+else
+    CURRENT_VERSION="$("$LFP_ENV_BIN" --version 2>/dev/null || true)"
 
-# Ensure mise is installed and reachable on PATH.
-{
-    MISE_INSTALL_DIR=""
-    MISE_BIN="$(bin_path "mise")" || {
-        log "mise not found on PATH. Installing."
-        LOCAL_BIN="${HOME}/.local/bin"
-        mkdir -p "${LOCAL_BIN}"
-        export MISE_INSTALL_DIR="${LOCAL_BIN}"
-        export MISE_INSTALL_PATH="${MISE_INSTALL_DIR}/mise"
-        http_get "https://mise.run" | sh >&2
-
-        MISE_BIN="$(bin_path "mise")" || {
-            printf "ERROR: mise installation failed\n" >&2
+    if [ -n "$VERSION" ] && [ -n "$MIN_VERSION" ]; then
+        if ! version_ge "$VERSION" "$MIN_VERSION"; then
+            printf "ERROR: VERSION (%s) does not satisfy MIN_VERSION (%s)\n" "$VERSION" "$MIN_VERSION" >&2
             exit 1
-        }
-    }
-
-    if [ -z "${MISE_INSTALL_DIR}" ]; then
-        MISE_INSTALL_DIR="$(dirname "$MISE_BIN")"
-    fi
-    MISE_INSTALL_DIR_RENDERED="$(home_relative_path "${MISE_INSTALL_DIR}")"
-
-    log "Discovered mise install directory: $MISE_INSTALL_DIR"
-    log "Rendered mise install directory: $MISE_INSTALL_DIR_RENDERED"
-    log "mise binary found: $MISE_BIN"
-}
-
-append_activate "MISE_INSTALL_DIR=\"${MISE_INSTALL_DIR_RENDERED}\"; case \":\$PATH:\" in *\":\$MISE_INSTALL_DIR:\"*) ;; *) export PATH=\"\$MISE_INSTALL_DIR:\$PATH\";; esac"
-append_activate 'eval "$(mise activate --shims bash)"'
-
-
-
-if [ "${DISABLE_RUN}" = "0" ]; then
-    if [ "${CARGO_INSTALL}" = "1" ]; then
-    log "Building and installing ${TOOL_SPEC}"
-    mise exec rust -- cargo install --path "." --bin lfp-env --root "${HOME}/.local" --force 1>&2
-    "${HOME}/.local/bin/lfp-env" "$@"
-    else
-    log "Installing ${TOOL_SPEC}"
-    mise use -g "${TOOL_SPEC}" 1>&2
-    mise x "${TOOL_SPEC}" -- lfp-env "$@"
-    fi
-fi
-
-
-# Append activation for a shell into a profile file.
-append_profile_line() {
-    profile_path=$1
-    shell_name=$2
-    interactive=$3
-    create_if_missing=${4:-0}
-
-    activate_tag="#${TOOL_SPEC}-activate"
-    path_line="MISE_INSTALL_DIR=\"${MISE_INSTALL_DIR_RENDERED}\"; case \":\$PATH:\" in *\":\$MISE_INSTALL_DIR:\"*) ;; *) export PATH=\"\$MISE_INSTALL_DIR:\$PATH\";; esac"
-
-    if [ "$interactive" = "1" ]; then
-        profile_line="${path_line}; eval \"\$(mise activate ${shell_name})\""
-    else
-        profile_line="${path_line}; eval \"\$(mise activate --shims bash)\""
-    fi
-
-    if [ ! -f "$profile_path" ]; then
-        if [ "$create_if_missing" = "1" ]; then
-            : > "$profile_path"
-            log "Created profile $profile_path"
-        else
-            return 0
         fi
     fi
 
-    tmp_file="${profile_path}.tmp.$$"
-
-    while IFS= read -r existing_line || [ -n "$existing_line" ]; do
-        case "$existing_line" in
-            *"$activate_tag")
-                continue
-                ;;
-            *)
-                printf '%s\n' "$existing_line"
-                ;;
-        esac
-    done < "$profile_path" > "$tmp_file"
-
-    printf '%s %s\n' "$profile_line" "$activate_tag" >> "$tmp_file"
-
-    if ! cmp -s "$profile_path" "$tmp_file"; then
-        mv "$tmp_file" "$profile_path"
-        log "Updated activation in $profile_path"
-    else
-        rm -f "$tmp_file"
-        log "No changes to $profile_path"
+    if [ -n "$VERSION" ]; then
+        [ "$CURRENT_VERSION" = "$VERSION" ] || INSTALL_REQUIRED=1
+    elif [ -n "$MIN_VERSION" ]; then
+        version_ge "$CURRENT_VERSION" "$MIN_VERSION" || INSTALL_REQUIRED=1
     fi
-}
-
-if [ "${ACTIVATE_PROFILE}" = "1" ]; then
-    append_profile_line "${HOME}/.profile" bash 0 1
-    append_profile_line "${HOME}/.bash_profile" bash 0
-    append_profile_line "${HOME}/.zshenv" zsh 0
-    append_profile_line "${HOME}/.zprofile" zsh 0
-    append_profile_line "${HOME}/.bashrc" bash 1
-    append_profile_line "${HOME}/.zshrc" zsh 1
 fi
 
+if [ "$INSTALL_REQUIRED" -eq 1 ]; then
+    ASSET_NAME="$(detect_asset_name)"
 
+    if [ -n "$VERSION" ]; then
+        RELEASE_URL="https://github.com/${REPO}/releases/download/v${VERSION}/${ASSET_NAME}"
+    else
+        RELEASE_URL="https://github.com/${REPO}/releases/latest/download/${ASSET_NAME}"
+    fi
 
-# Print export statements for caller eval.
-printf '%s\n' "$ACTIVATE"
+    TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/lfp-env-install.XXXXXX")"
+    ARCHIVE_PATH="${TEMP_DIR}/${ASSET_NAME}"
+
+    download_file "$RELEASE_URL" "$ARCHIVE_PATH"
+
+    tar -xzf "$ARCHIVE_PATH" -C "$BIN_DIR"
+
+    [ -f "$LFP_ENV_BIN" ] || { echo "ERROR: extracted archive did not contain lfp-env" >&2; exit 1; }
+
+    chmod +x "$LFP_ENV_BIN"
+fi
+
+export LFP_ENV_INSTALLER_MODE=1
+exec "$LFP_ENV_BIN" "$@"
