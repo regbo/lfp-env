@@ -33,8 +33,9 @@ $url = "https://github.com/$repo/releases/download/$tag/$filename"
 
 $temp = Join-Path $env:TEMP $filename
 $binDir = Join-Path $env:LOCALAPPDATA "bin"
+$localCargoBin = Join-Path $HOME ".local\bin"
 $binDirActivateLine = 'if (-not ($env:PATH.Split(";") -contains "$env:LOCALAPPDATA\bin")) { $env:PATH="$env:LOCALAPPDATA\bin;$env:PATH" }'
-$shimsActivateLine = '(& mise activate --shims pwsh) | Out-String | Invoke-Expression'
+$shimsActivateLine = '$miseShimActivation = (& mise activate --shims pwsh | Out-String).Trim(); if (-not [string]::IsNullOrWhiteSpace($miseShimActivation)) { Invoke-Expression $miseShimActivation }'
 
 Write-Stderr "Downloading $url"
 Invoke-WebRequest -Uri $url -OutFile $temp
@@ -87,7 +88,7 @@ Write-Stderr "Discovered mise path: $misePath"
 
 
 $profilePath = "$HOME\Documents\PowerShell\Microsoft.PowerShell_profile.ps1"
-$line = '(&mise activate pwsh) | Out-String | Invoke-Expression'
+$line = '$miseShimActivation = (& mise activate --shims pwsh | Out-String).Trim(); if (-not [string]::IsNullOrWhiteSpace($miseShimActivation)) { Invoke-Expression $miseShimActivation }'
 Write-Stderr "Discovered profile path: $profilePath"
 
 if (-not (Test-Path $profilePath)) {
@@ -107,8 +108,8 @@ if ($disableRun -eq "0") {
     if ($cargoInstall -eq "1") {
         Write-Stderr "Building and installing $toolSpec"
         & $misePath exec rust -- cargo install --path "." --bin lfp-env --root "$HOME/.local" --force 2>&1 | ForEach-Object { Write-Stderr "$_" }
-        Write-Stderr "Discovered local cargo bin directory: $HOME/.local/bin"
-        $lfpOutput = & "$HOME/.local/bin/lfp-env.exe" @args
+        Write-Stderr "Discovered local cargo bin directory: $localCargoBin"
+        $lfpOutput = & "$localCargoBin/lfp-env.exe" @args
     } else {
         Write-Stderr "Installing $toolSpec"
         & $misePath use -g $toolSpec 2>&1 | ForEach-Object { Write-Stderr "$_" }
