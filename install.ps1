@@ -51,7 +51,7 @@ if ($userPath -notlike "*$binDir*") {
 }
 $env:PATH = "$binDir;$env:PATH"
 
-(&mise activate pwsh) | Out-String | Invoke-Expression
+
 $profilePath = "$HOME\Documents\PowerShell\Microsoft.PowerShell_profile.ps1"
 $line = '(&mise activate pwsh) | Out-String | Invoke-Expression'
 
