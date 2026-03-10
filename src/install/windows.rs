@@ -33,7 +33,6 @@ impl PlatformInstaller for WindowsPlatform {
 
         Ok(InstallContext {
             home_dir,
-            home_changed: false,
             tmpdir_export_line: None,
             home_export_line: None,
         })

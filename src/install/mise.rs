@@ -1,4 +1,5 @@
 use super::log_install;
+#[cfg(not(windows))]
 use super::download;
 use super::platform::{InstallContext, PlatformInstaller};
 use super::process;

@@ -57,7 +57,6 @@ impl PlatformInstaller for UnixPlatform {
 
         Ok(InstallContext {
             home_dir: PathBuf::from(home_dir),
-            home_changed,
             tmpdir_export_line,
             home_export_line,
         })
@@ -88,10 +87,6 @@ impl PlatformInstaller for UnixPlatform {
         if !config.activate_profile {
             return Ok(());
         }
-        if context.home_changed {
-            return Ok(());
-        }
-
         let activate_tag = "#lfp-env-activate".to_string();
         let rendered_dir = self.render_home_relative(&context.home_dir, &mise_info.install_dir);
         let path_line = format!(
@@ -112,17 +107,17 @@ impl PlatformInstaller for UnixPlatform {
             (home_dir.join(".bashrc"), bash_interactive_line, false),
             (home_dir.join(".zshrc"), zsh_interactive_line, false),
         ];
+
         for (profile_path, profile_line, create_if_missing) in specs {
-            if profile_path.exists() || create_if_missing {
-                profile::update_tagged_profile_line(
-                    &profile_path,
-                    &profile_line,
-                    &activate_tag,
-                    create_if_missing,
-                    config.logging_enabled,
-                )?;
-            }
+            profile::update_tagged_profile_line(
+                &profile_path,
+                &profile_line,
+                &activate_tag,
+                create_if_missing,
+                config.logging_enabled,
+            )?;
         }
+
         Ok(())
     }
 

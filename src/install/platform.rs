@@ -6,7 +6,6 @@ use std::path::{Path, PathBuf};
 /// Shared installer context prepared by a platform implementation.
 pub struct InstallContext {
     pub home_dir: PathBuf,
-    pub home_changed: bool,
     pub tmpdir_export_line: Option<String>,
     pub home_export_line: Option<String>,
 }

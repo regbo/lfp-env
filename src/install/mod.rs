@@ -1,10 +1,13 @@
 pub mod config;
+#[cfg(not(windows))]
 pub mod download;
 pub mod mise;
 pub mod platform;
 pub mod process;
 pub mod profile;
+#[cfg(unix)]
 pub mod unix;
+#[cfg(windows)]
 pub mod windows;
 
 use self::config::InstallConfig;
