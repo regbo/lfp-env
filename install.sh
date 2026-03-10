@@ -6,23 +6,18 @@ TOOL_SPEC="${LFP_ENV_TOOL_SPEC:-github:regbo/lfp-env}"
 ACTIVATE_PROFILE="${LFP_ACTIVATE_PROFILE:-1}"
 DISABLE_RUN="${LFP_ENV_DISABLE_RUN:-0}"
 CARGO_INSTALL="${LFP_ENV_CARGO_INSTALL:-0}"
-LOG_ENABLED="${LFP_ENV_LOG_ENABLED:-1}"
-SCRIPT_DIR=$(cd -- "$(dirname -- "$0")" && pwd -P)
 
 ACTIVATE=""
 
 # Log a message to stderr for lightweight tracing.
 log() {
-    if [ "${LOG_ENABLED}" = "1" ]; then
-        printf "%s\n" "$*" >&2
-    fi
+    printf "%s\n" "$*" >&2
 }
 
 # Evaluate a command now and append it to the activation snippet.
 append_activate() {
     cmd=$1
     eval "$cmd"
-    log "Activation output: $cmd"
     ACTIVATE="${ACTIVATE}${cmd};"
 }
 
@@ -124,8 +119,6 @@ http_get() {
 
 
 
-
-
 # Resolve and export HOME when needed.
 {
     home_dir=$(writable_dir "1" "${HOME:-}" "/home" "/home/app")
@@ -192,7 +185,7 @@ append_activate 'eval "$(mise activate --shims bash)"'
 if [ "${DISABLE_RUN}" = "0" ]; then
     if [ "${CARGO_INSTALL}" = "1" ]; then
     log "Building and installing ${TOOL_SPEC}"
-    mise exec rust -- cargo install --path "${SCRIPT_DIR}" --bin lfp-env --root "${HOME}/.local" --force 1>&2
+    mise exec rust -- cargo install --path "." --bin lfp-env --root "${HOME}/.local" --force 1>&2
     "${HOME}/.local/bin/lfp-env" "$@"
     else
     log "Installing ${TOOL_SPEC}"
