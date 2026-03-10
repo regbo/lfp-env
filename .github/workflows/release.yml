@@ -19,12 +19,10 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Install mise
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl https://mise.run | sh
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Install mise and toolchain
+        uses: jdx/mise-action@v3
+        with:
+          install: true
 
       - name: Prebuild test binary
         shell: bash
@@ -40,11 +38,10 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Install mise
-        shell: pwsh
-        run: |
-          irm -useb https://mise.run | iex
-          Add-Content -Path $env:GITHUB_PATH -Value "$env:USERPROFILE\AppData\Local\mise\bin"
+      - name: Install mise and toolchain
+        uses: jdx/mise-action@v3
+        with:
+          install: true
 
       - name: Prebuild test binary
         shell: pwsh
