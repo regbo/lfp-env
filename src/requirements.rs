@@ -6,6 +6,20 @@ struct ProgramSpec {
     name: &'static str,
     version_args: &'static [&'static str],
     min_version: Option<&'static str>,
+    mise_package_name: Option<&'static str>,
+    mise_version: Option<&'static str>,
+}
+
+impl ProgramSpec {
+    /// Resolve the package name used when installing a missing requirement via mise.
+    fn mise_package_name(&self) -> &'static str {
+        self.mise_package_name.unwrap_or(self.name)
+    }
+
+    /// Resolve the version used when installing a missing requirement via mise.
+    fn mise_version(&self) -> &'static str {
+        self.mise_version.unwrap_or("latest")
+    }
 }
 
 /// Program checks:
@@ -16,16 +30,22 @@ const PROGRAM_SPECS: &[ProgramSpec] = &[
         name: "python",
         version_args: &["--version"],
         min_version: Some("3.10"),
+        mise_package_name: None,
+        mise_version: None,
     },
     ProgramSpec {
         name: "uv",
         version_args: &["--version"],
         min_version: None,
+        mise_package_name: None,
+        mise_version: None,
     },
     ProgramSpec {
         name: "git",
         version_args: &["--version"],
         min_version: None,
+        mise_package_name: Some("github-cli"),
+        mise_version: None,
     },
 ];
 
@@ -57,8 +77,12 @@ where
 /// Ensure a program is available and, when required, meets minimum version.
 fn ensure_program(program: &ProgramSpec, mise_bin: &str) -> Result<(), String> {
     debug!(
-        "Ensuring program '{}' with version args {:?} and min_version {:?}",
-        program.name, program.version_args, program.min_version
+        "Ensuring program '{}' with version args {:?}, min_version {:?}, mise_package '{}', and mise_version '{}'",
+        program.name,
+        program.version_args,
+        program.min_version,
+        program.mise_package_name(),
+        program.mise_version()
     );
     let version_output = run_command_capture_check(program.name, program.version_args);
     let needs_install = match version_output {
@@ -93,19 +117,22 @@ fn ensure_program(program: &ProgramSpec, mise_bin: &str) -> Result<(), String> {
     };
 
     if needs_install {
-        install_with_mise(program.name, mise_bin)?;
+        install_with_mise(program, mise_bin)?;
         info!("Program '{}' installed via mise", program.name);
     }
 
     Ok(())
 }
 
-/// Install a program using mise at latest version.
-fn install_with_mise(program_name: &str, mise_bin: &str) -> Result<(), String> {
-    let tool_selector = format!("{program_name}@latest");
-    info!("Installing '{}' with selector '{}'", program_name, tool_selector);
+/// Install a program using the configured mise package selector and version.
+fn install_with_mise(program: &ProgramSpec, mise_bin: &str) -> Result<(), String> {
+    let tool_selector = format!("{}@{}", program.mise_package_name(), program.mise_version());
+    info!(
+        "Installing '{}' with selector '{}'",
+        program.name, tool_selector
+    );
     run_command_status(mise_bin, &["use", "-g", &tool_selector])
-        .map_err(|err| format!("Failed to install {program_name} via mise: {err}"))
+        .map_err(|err| format!("Failed to install {} via mise: {err}", program.name))
 }
 
 /// Run a command and capture stdout/stderr text when successful.
@@ -192,7 +219,7 @@ fn extract_version_token(output: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_version_token, is_version_at_least};
+    use super::{extract_version_token, is_version_at_least, ProgramSpec};
 
     #[test]
     fn parses_full_python_version() {
@@ -214,5 +241,41 @@ mod tests {
     #[test]
     fn detects_minimum_version_failure() {
         assert!(!is_version_at_least("Python 3.9.21", "3.10"));
+    }
+
+    #[test]
+    fn defaults_mise_package_name_to_requirement_name() {
+        let program = ProgramSpec {
+            name: "python",
+            version_args: &["--version"],
+            min_version: Some("3.10"),
+            mise_package_name: None,
+            mise_version: None,
+        };
+        assert_eq!(program.mise_package_name(), "python");
+    }
+
+    #[test]
+    fn defaults_mise_version_to_latest() {
+        let program = ProgramSpec {
+            name: "uv",
+            version_args: &["--version"],
+            min_version: None,
+            mise_package_name: None,
+            mise_version: None,
+        };
+        assert_eq!(program.mise_version(), "latest");
+    }
+
+    #[test]
+    fn allows_overriding_mise_package_name() {
+        let program = ProgramSpec {
+            name: "git",
+            version_args: &["--version"],
+            min_version: None,
+            mise_package_name: Some("github-cli"),
+            mise_version: None,
+        };
+        assert_eq!(program.mise_package_name(), "github-cli");
     }
 }
