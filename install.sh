@@ -55,6 +55,30 @@ writable_dir() {
 }
 
 
+# Resolve an executable path by command name.
+bin_path() {
+    program_name="${1:-}"
+    if [ -z "$program_name" ]; then
+        return 1
+    fi
+
+    # First try POSIX type output.
+    type_path="$(type "$program_name" 2>/dev/null | awk '/ is \// { sub(/^.* is /, "", $0); print; exit }' || true)"
+    if is_exec "${type_path}"; then
+        printf "%s\n" "${type_path}"
+        return 0
+    fi
+
+    # Fall back to which when available.
+    which_path="$(which "$program_name" 2>/dev/null || true)"
+    if is_exec "${which_path}"; then
+        printf "%s\n" "${which_path}"
+        return 0
+    fi
+
+    return 1
+}
+
 
 # Fetch a URL with curl or wget.
 http_get() {
@@ -113,7 +137,7 @@ http_get() {
 
 # Ensure mise is installed and reachable on PATH.
 {
-    MISE_BIN="$(mise x -- which mise 2>/dev/null)" || {
+    MISE_BIN="$(bin_path "mise")" || {
         log "mise not found on PATH. Installing."
         local_bin_dir="${HOME}/.local/bin"
         mkdir -p "${local_bin_dir}"
@@ -131,7 +155,7 @@ http_get() {
         export MISE_INSTALL_PATH="${local_bin_dir}/mise"
         http_get "https://mise.run" | sh >&2
 
-        MISE_BIN="$(mise x -- which mise 2>/dev/null)" || {
+        MISE_BIN="$(bin_path "mise")" || {
             printf "ERROR: mise installation failed\n" >&2
             exit 1
         }
