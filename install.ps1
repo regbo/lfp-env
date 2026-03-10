@@ -2,6 +2,18 @@ $toolSpec = if ($env:LFP_ENV_TOOL_SPEC) { $env:LFP_ENV_TOOL_SPEC } else { "githu
 $cargoInstall = if ($env:LFP_ENV_CARGO_INSTALL) { $env:LFP_ENV_CARGO_INSTALL } else { "0" }
 $disableRun = if ($env:LFP_ENV_DISABLE_RUN) { $env:LFP_ENV_DISABLE_RUN } else { "0" }
 
+function Write-Stderr {
+    param([Parameter(Mandatory = $true)][string]$Message)
+
+    [Console]::Error.WriteLine($Message)
+}
+
+function Add-ActivateLine {
+    param([Parameter(Mandatory = $true)][string]$Line)
+
+    Write-Output $Line
+}
+
 
 $repo = "jdx/mise"
 $api  = "https://api.github.com/repos/$repo/releases/latest"
@@ -21,10 +33,10 @@ $url = "https://github.com/$repo/releases/download/$tag/$filename"
 $temp = Join-Path $env:TEMP $filename
 $binDir = Join-Path $env:LOCALAPPDATA "bin"
 
-Write-Host "Downloading $url"
+Write-Stderr "Downloading $url"
 Invoke-WebRequest -Uri $url -OutFile $temp
 
-Write-Host "Preparing $binDir"
+Write-Stderr "Preparing $binDir"
 New-Item -ItemType Directory -Force $binDir | Out-Null
 
 $extract = Join-Path $env:TEMP "mise-extract"
@@ -47,7 +59,7 @@ if ($shimExe) {
 $userPath = [Environment]::GetEnvironmentVariable("PATH","User")
 
 if ($userPath -notlike "*$binDir*") {
-    Write-Host "Adding $binDir to PATH"
+    Write-Stderr "Adding $binDir to PATH"
 
     [Environment]::SetEnvironmentVariable("PATH", "$binDir;$userPath", "User")
 
@@ -56,9 +68,10 @@ if ($userPath -notlike "*$binDir*") {
     }
 }
 
+Add-ActivateLine -Line '$env:PATH="$env:LOCALAPPDATA/bin;$env:PATH"'
 
-Write-Host "Installed to $binDir"
-& (Join-Path $binDir "mise.exe") -v
+Write-Stderr "Installed to $binDir"
+& (Join-Path $binDir "mise.exe") -v 1>&2
 
 $misePath = Join-Path $binDir "mise.exe"
 
@@ -77,14 +90,12 @@ if (-not (Select-String -Path $profilePath -SimpleMatch $line -Quiet)) {
 
 if ($disableRun -eq "0") {
     if ($cargoInstall -eq "1") {
-        Write-Host "Building and installing $toolSpec"
-        & $misePath exec rust -- cargo install --path "." --bin lfp-env --root "$HOME/.local" --force
+        Write-Stderr "Building and installing $toolSpec"
+        & $misePath exec rust -- cargo install --path "." --bin lfp-env --root "$HOME/.local" --force 1>&2
         $lfpOutput = & "$HOME/.local/bin/lfp-env.exe" @args
     } else {
-        Write-Host "Installing $toolSpec"
-        & $misePath use -g $toolSpec
+        Write-Stderr "Installing $toolSpec"
+        & $misePath use -g $toolSpec 1>&2
         $lfpOutput = & $misePath x $toolSpec -- lfp-env @args
     }
 }
-
-& $misePath reshim

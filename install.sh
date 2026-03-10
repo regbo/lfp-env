@@ -54,6 +54,23 @@ writable_dir() {
     return 1
 }
 
+# Render a path using ${HOME} when it lives under HOME.
+home_relative_path() {
+    path_value="${1:-}"
+
+    case "$path_value" in
+        "$HOME")
+            printf '%s\n' '${HOME}'
+            ;;
+        "$HOME"/*)
+            printf '${HOME}%s\n' "${path_value#"$HOME"}"
+            ;;
+        *)
+            printf '%s\n' "$path_value"
+            ;;
+    esac
+}
+
 
 # Resolve an executable path by command name.
 bin_path() {
@@ -137,22 +154,13 @@ http_get() {
 
 # Ensure mise is installed and reachable on PATH.
 {
+    MISE_INSTALL_DIR=""
     MISE_BIN="$(bin_path "mise")" || {
         log "mise not found on PATH. Installing."
-        local_bin_dir="${HOME}/.local/bin"
-        mkdir -p "${local_bin_dir}"
-
-        case ":${PATH:-}:" in
-            *:"$local_bin_dir":*)
-                log "PATH contains $local_bin_dir"
-                ;;
-            *)
-                log "PATH updated with $local_bin_dir"
-                append_activate 'export PATH="${HOME}/.local/bin:${PATH:-}"'
-                ;;
-        esac
-
-        export MISE_INSTALL_PATH="${local_bin_dir}/mise"
+        LOCAL_BIN="${HOME}/.local/bin"
+        mkdir -p "${LOCAL_BIN}"
+        export MISE_INSTALL_DIR="${LOCAL_BIN}"
+        export MISE_INSTALL_PATH="${MISE_INSTALL_DIR}/mise"
         http_get "https://mise.run" | sh >&2
 
         MISE_BIN="$(bin_path "mise")" || {
@@ -161,33 +169,16 @@ http_get() {
         }
     }
 
+    if [ -z "${MISE_INSTALL_DIR}" ]; then
+        MISE_INSTALL_DIR="$(dirname "$MISE_BIN")"
+    fi
+    MISE_INSTALL_DIR_RENDERED="$(home_relative_path "${MISE_INSTALL_DIR}")"
+
     log "mise binary found: $MISE_BIN"
 }
 
-# Resolve MISE_SHIMS_DIR from `mise doctor`
-{
-    shims_raw=$(
-        mise doctor 2>/dev/null |
-        awk '/^[[:space:]]*shims:/ {print $2; exit}'
-    )
-
-    [ -n "$shims_raw" ] || {
-        printf "ERROR: could not determine mise shims directory\n" >&2
-        exit 1
-    }
-
-    case "$shims_raw" in
-        "~/"*)
-            MISE_SHIMS_DIR='${HOME}'"${shims_raw#\~}"
-            ;;
-        *)
-            MISE_SHIMS_DIR="$shims_raw"
-            ;;
-    esac
-}
-
-
-append_activate "export PATH=\"${MISE_SHIMS_DIR}:\$PATH\""
+append_activate "MISE_INSTALL_DIR=\"${MISE_INSTALL_DIR_RENDERED}\"; case \":\$PATH:\" in *\":\$MISE_INSTALL_DIR:\"*) ;; *) export PATH=\"\$MISE_INSTALL_DIR:\$PATH\";; esac"
+append_activate 'eval "$(mise activate --shims bash)"'
 
 
 
@@ -212,13 +203,12 @@ append_profile_line() {
     create_if_missing=${4:-0}
 
     activate_tag="#${TOOL_SPEC}-activate"
-
-    mise_parent_dir=$(dirname "$MISE_BIN")
+    path_line="MISE_INSTALL_DIR=\"${MISE_INSTALL_DIR_RENDERED}\"; case \":\$PATH:\" in *\":\$MISE_INSTALL_DIR:\"*) ;; *) export PATH=\"\$MISE_INSTALL_DIR:\$PATH\";; esac"
 
     if [ "$interactive" = "1" ]; then
-        profile_line="export PATH=\"${mise_parent_dir}:\${PATH:-}\"; eval \"\$(${MISE_BIN} activate ${shell_name})\""
+        profile_line="${path_line}; eval \"\$(mise activate ${shell_name})\""
     else
-        profile_line="export PATH=\"${mise_parent_dir}:${MISE_SHIMS_DIR}:\${PATH:-}\""
+        profile_line="${path_line}; eval \"\$(mise activate --shims bash)\""
     fi
 
     if [ ! -f "$profile_path" ]; then
