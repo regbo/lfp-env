@@ -22,6 +22,7 @@ log() {
 append_activate() {
     cmd=$1
     eval "$cmd"
+    log "Activation output: $cmd"
     ACTIVATE="${ACTIVATE}${cmd};"
 }
 
@@ -132,6 +133,7 @@ http_get() {
         printf "Error: Could not find or create a writable directory for HOME.\n" >&2
         exit 1
     fi
+    log "Discovered HOME directory: $home_dir"
     if [ "${HOME:-}" != "$home_dir" ]; then
         ACTIVATE_PROFILE="0"
         log "Setting HOME to $home_dir"
@@ -147,8 +149,11 @@ http_get() {
     if [ -z "$tmp_dir" ]; then
         home_tmp_dir="${HOME}/.tmp"
         mkdir -p "${home_tmp_dir}"
+        log "Created TMPDIR directory: ${home_tmp_dir}"
         log "Setting TMPDIR to ${home_tmp_dir}"
         append_activate 'export TMPDIR=\${HOME}/.tmp'
+    else
+        log "Discovered TMPDIR directory: $tmp_dir"
     fi
 }
 
@@ -174,6 +179,8 @@ http_get() {
     fi
     MISE_INSTALL_DIR_RENDERED="$(home_relative_path "${MISE_INSTALL_DIR}")"
 
+    log "Discovered mise install directory: $MISE_INSTALL_DIR"
+    log "Rendered mise install directory: $MISE_INSTALL_DIR_RENDERED"
     log "mise binary found: $MISE_BIN"
 }
 

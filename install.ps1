@@ -11,6 +11,7 @@ function Write-Stderr {
 function Add-ActivateLine {
     param([Parameter(Mandatory = $true)][string]$Line)
 
+    Write-Stderr "Activation output: $Line"
     Write-Output $Line
 }
 
@@ -40,6 +41,8 @@ Write-Stderr "Preparing $binDir"
 New-Item -ItemType Directory -Force $binDir | Out-Null
 
 $extract = Join-Path $env:TEMP "mise-extract"
+Write-Stderr "Using download file $temp"
+Write-Stderr "Using extract directory $extract"
 Remove-Item $extract -Recurse -Force -ErrorAction SilentlyContinue
 Expand-Archive -Path $temp -DestinationPath $extract -Force
 
@@ -51,12 +54,15 @@ if (-not $miseExe) {
 }
 
 Copy-Item $miseExe.FullName (Join-Path $binDir "mise.exe") -Force
+Write-Stderr "Copied $($miseExe.FullName) to $(Join-Path $binDir "mise.exe")"
 
 if ($shimExe) {
     Copy-Item $shimExe.FullName (Join-Path $binDir "mise-shim.exe") -Force
+    Write-Stderr "Copied $($shimExe.FullName) to $(Join-Path $binDir "mise-shim.exe")"
 }
 
 $userPath = [Environment]::GetEnvironmentVariable("PATH","User")
+Write-Stderr "Discovered user PATH: $userPath"
 
 if ($userPath -notlike "*$binDir*") {
     Write-Stderr "Adding $binDir to PATH"
@@ -74,17 +80,23 @@ Write-Stderr "Installed to $binDir"
 & (Join-Path $binDir "mise.exe") -v 2>&1 | ForEach-Object { Write-Stderr "$_" }
 
 $misePath = Join-Path $binDir "mise.exe"
+Write-Stderr "Discovered mise path: $misePath"
 
 
 $profilePath = "$HOME\Documents\PowerShell\Microsoft.PowerShell_profile.ps1"
 $line = '(&mise activate pwsh) | Out-String | Invoke-Expression'
+Write-Stderr "Discovered profile path: $profilePath"
 
 if (-not (Test-Path $profilePath)) {
     New-Item -ItemType File -Force $profilePath | Out-Null
+    Write-Stderr "Created profile $profilePath"
 }
 
 if (-not (Select-String -Path $profilePath -SimpleMatch $line -Quiet)) {
     Add-Content -Path $profilePath -Value $line
+    Write-Stderr "Updated profile $profilePath"
+} else {
+    Write-Stderr "No changes to $profilePath"
 }
 
 
@@ -92,6 +104,7 @@ if ($disableRun -eq "0") {
     if ($cargoInstall -eq "1") {
         Write-Stderr "Building and installing $toolSpec"
         & $misePath exec rust -- cargo install --path "." --bin lfp-env --root "$HOME/.local" --force 2>&1 | ForEach-Object { Write-Stderr "$_" }
+        Write-Stderr "Discovered local cargo bin directory: $HOME/.local/bin"
         $lfpOutput = & "$HOME/.local/bin/lfp-env.exe" @args
     } else {
         Write-Stderr "Installing $toolSpec"
