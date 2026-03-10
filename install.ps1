@@ -33,6 +33,8 @@ $url = "https://github.com/$repo/releases/download/$tag/$filename"
 
 $temp = Join-Path $env:TEMP $filename
 $binDir = Join-Path $env:LOCALAPPDATA "bin"
+$binDirActivateLine = 'if (-not ($env:PATH.Split(";") -contains "$env:LOCALAPPDATA\bin")) { $env:PATH="$env:LOCALAPPDATA\bin;$env:PATH" }'
+$shimsActivateLine = '(& mise activate --shims pwsh) | Out-String | Invoke-Expression'
 
 Write-Stderr "Downloading $url"
 Invoke-WebRequest -Uri $url -OutFile $temp
@@ -74,7 +76,8 @@ if ($userPath -notlike "*$binDir*") {
     }
 }
 
-Add-ActivateLine -Line 'if (-not ($env:PATH.Split(";") -contains "$env:LOCALAPPDATA\bin")) { $env:PATH="$env:LOCALAPPDATA\bin;$env:PATH" }'
+Add-ActivateLine -Line $binDirActivateLine
+Add-ActivateLine -Line $shimsActivateLine
 
 Write-Stderr "Installed to $binDir"
 & (Join-Path $binDir "mise.exe") -v 2>&1 | ForEach-Object { Write-Stderr "$_" }
