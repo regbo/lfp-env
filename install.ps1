@@ -47,6 +47,7 @@ if ($userPath -notlike "*$binDir*") {
     Write-Host "Adding $binDir to PATH"
     [Environment]::SetEnvironmentVariable("PATH", "$binDir;$userPath", "User")
 }
+$env:PATH = "$binDir;$env:PATH"
 
 Write-Host "Installed to $binDir"
 & (Join-Path $binDir "mise.exe") -v
@@ -57,7 +58,7 @@ if ($disableRun -eq "0") {
     if ($cargoInstall -eq "1") {
         Write-Host "Building and installing $toolSpec"
         & $misePath exec rust -- cargo install --path "." --bin lfp-env --root "$HOME/.local" --force
-        & "$HOME/.local/bin/lfp-env" @args
+        & "$HOME/.local/bin/lfp-env.exe" @args
     } else {
         Write-Host "Installing $toolSpec"
         & $misePath use -g $toolSpec

@@ -21,9 +21,6 @@ struct ProgramSpec {
     disable_version_flag = false
 )]
 struct CliOptions {
-    /// Explicit path to the mise executable.
-    #[arg(long = "mise-bin", alias = "mise_bin")]
-    mise_bin: Option<String>,
     /// Environment override passed as KEY:VALUE.
     #[arg(long = "env", value_name = "KEY:VALUE", value_parser = parse_env_pair, action = ArgAction::Append)]
     env_overrides: Vec<(String, String)>,
@@ -78,10 +75,7 @@ fn main() -> Result<(), String> {
         "CLI options resolved: export_path={}, export_path_format={:?}, log_level={:?}",
         options.export_path, options.export_path_format, options.log_level
     );
-    let mise_bin = match options.mise_bin.clone() {
-        Some(path) => path,
-        None => resolve_mise_bin()?,
-    };
+    let mise_bin = resolve_mise_bin()?;
     let mise_doctor_output = run_command_capture(&mise_bin, &["doctor"], false)
         .map_err(|err| format!("Failed to run 'mise doctor': {err}"))?;
     if debug_enabled() {
@@ -558,9 +552,6 @@ fn extract_version_token(output: &str) -> Option<String> {
 }
 
 /// Parse CLI options.
-/// Supports:
-/// - --mise-bin <path>
-/// - --mise_bin <path> (compatibility)
 fn parse_cli_options() -> Result<CliOptions, String> {
     CliOptions::try_parse().map_err(|err| err.to_string())
 }
