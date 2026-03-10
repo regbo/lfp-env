@@ -6,17 +6,21 @@ TOOL_SPEC="${LFP_ENV_TOOL_SPEC:-github:regbo/lfp-env}"
 ACTIVATE_PROFILE="${LFP_ACTIVATE_PROFILE:-1}"
 DISABLE_RUN="${LFP_ENV_DISABLE_RUN:-0}"
 CARGO_INSTALL="${LFP_ENV_CARGO_INSTALL:-0}"
+LOGGING_ENABLED="${LFP_ENV_LOGGING_ENABLED:-1}"
+LOG_PREFIX="[lfp-env-install]"
 
 ACTIVATE=""
 
 # Log a message to stderr for lightweight tracing.
 log() {
-    printf "%s\n" "$*" >&2
+    [ "${LOGGING_ENABLED}" = "1" ] || return 0
+    printf "%s %s\n" "${LOG_PREFIX}" "$*" >&2
 }
 
 # Evaluate a command now and append it to the activation snippet.
 append_activate() {
     cmd=$1
+    log "Activation output: $cmd"
     eval "$cmd"
     ACTIVATE="${ACTIVATE}${cmd};"
 }

@@ -2,18 +2,25 @@ $toolSpec = if ($env:LFP_ENV_TOOL_SPEC) { $env:LFP_ENV_TOOL_SPEC } else { "githu
 $activateProfile = if ($env:LFP_ACTIVATE_PROFILE) { $env:LFP_ACTIVATE_PROFILE } else { "1" }
 $cargoInstall = if ($env:LFP_ENV_CARGO_INSTALL) { $env:LFP_ENV_CARGO_INSTALL } else { "0" }
 $disableRun = if ($env:LFP_ENV_DISABLE_RUN) { $env:LFP_ENV_DISABLE_RUN } else { "0" }
+$loggingEnabled = if ($env:LFP_ENV_LOGGING_ENABLED) { $env:LFP_ENV_LOGGING_ENABLED } else { "1" }
+$logPrefix = "[lfp-env-install]"
 $repo = "jdx/mise"
 $api  = "https://api.github.com/repos/$repo/releases/latest"
 
 function Write-Stderr {
     param([Parameter(Mandatory = $true)][string]$Message)
 
-    [Console]::Error.WriteLine($Message)
+    if ($loggingEnabled -ne "1") {
+        return
+    }
+
+    [Console]::Error.WriteLine("$logPrefix $Message")
 }
 
 function Add-ActivateLine {
     param([Parameter(Mandatory = $true)][string]$Line)
 
+    Write-Stderr "Activation output: $Line"
     Write-Output $Line
 }
 
