@@ -200,11 +200,12 @@ def _run_tag_command(
 ) -> None:
     owner, repo = _detect_repo_slug()
     resolved_tag = tag if tag else _next_tag(major=major, minor=minor)
+    ref = _resolve_ref_for_commit()
     _LOG.info("Using tag: %s", resolved_tag)
-    _rewrite_readme_raw_urls(owner=owner, repo=repo, ref=resolved_tag)
+    _rewrite_readme_raw_urls(owner=owner, repo=repo, ref=ref)
     resolved = _resolve_message(
         user_message=message,
-        default_message=f"chore: sync README raw URLs to {owner}/{repo}/{resolved_tag}",
+        default_message=f"chore: sync README raw URLs to {owner}/{repo}/{ref}",
     )
     committed = _commit_all_changes(resolved)
     _create_tag(resolved_tag)
