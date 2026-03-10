@@ -92,6 +92,7 @@ impl InstallState {
         }
 
         let mise_bin = self.mise_info.bin_path.to_string_lossy().to_string();
+        self.configure_new_mise(&mise_bin)?;
         requirements::run_checks(&mise_bin)?;
 
         if self.config.forwarded_mise_args.is_empty() {
@@ -106,6 +107,20 @@ impl InstallState {
             ),
         );
         process::run_command(&mise_bin, &self.config.forwarded_mise_args, &[], true).map(|_| ())
+    }
+
+    /// Apply one-time settings immediately after a fresh `mise` install.
+    fn configure_new_mise(&self, mise_bin: &str) -> Result<(), String> {
+        if !self.mise_info.installed_now {
+            return Ok(());
+        }
+
+        log_install(
+            self.config.logging_enabled,
+            "Enabling mise experimental settings for this new install.",
+        );
+        let settings_args = ["settings", "experimental=true"];
+        process::run_command(mise_bin, &settings_args, &[], true).map(|_| ())
     }
 }
 

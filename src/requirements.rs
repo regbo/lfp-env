@@ -44,7 +44,7 @@ const PROGRAM_SPECS: &[ProgramSpec] = &[
         name: "git",
         version_args: &["--version"],
         min_version: None,
-        mise_package_name: Some("github-cli"),
+        mise_package_name: Some("conda:git"),
         mise_version: None,
     },
 ];
