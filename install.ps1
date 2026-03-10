@@ -45,13 +45,16 @@ if ($shimExe) {
 }
 
 $userPath = [Environment]::GetEnvironmentVariable("PATH","User")
+
 if ($userPath -notlike "*$binDir*") {
     Write-Host "Adding $binDir to PATH"
+
     [Environment]::SetEnvironmentVariable("PATH", "$binDir;$userPath", "User")
+
+    if ($env:PATH -notlike "*$binDir*") {
+        $env:PATH = "$binDir;$env:PATH"
+    }
 }
-$env:PATH = "$binDir;$env:PATH"
-
-
 
 
 Write-Host "Installed to $binDir"

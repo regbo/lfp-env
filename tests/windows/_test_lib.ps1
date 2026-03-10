@@ -23,6 +23,12 @@ function Assert-NotBlank {
     }
 }
 
+function Reset-SessionPath {
+    $machinePath = [Environment]::GetEnvironmentVariable("PATH", "Machine")
+    $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+    $env:PATH = "$machinePath;$userPath"
+}
+
 function Invoke-Test {
     param(
         [Parameter(Mandatory = $true)][string]$Name,
@@ -31,6 +37,7 @@ function Invoke-Test {
     # $env:RUST_BACKTRACE = "1"
     # $env:MISE_VERBOSE = "1"
     $env:LFP_ENV_CARGO_INSTALL = "1"
+    Reset-SessionPath
     Write-Log "START: $Name"
     Push-Location (Join-Path $PSScriptRoot "..\..")
     try {

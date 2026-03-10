@@ -6,7 +6,6 @@ $ErrorActionPreference = "Stop"
 Invoke-Test -Name "bootstrap and core tools" -Body {
     Write-Host "[runner] running install.ps1"
     & .\install.ps1
-
     Write-Host "[runner] validating installed binaries"
     mise -v | Out-Null
     Assert-Command -Name "git"
