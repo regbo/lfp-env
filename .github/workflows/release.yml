@@ -3,7 +3,7 @@ name: Tag Tests And Release
 on:
   push:
     tags:
-      - "*"
+      - "v*"
 
 concurrency:
   group: tag-tests-and-release
