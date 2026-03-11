@@ -95,7 +95,6 @@ impl InstallState {
     fn run_post_install_actions(&self) -> Result<(), String> {
         let mise_bin = self.mise_info.bin_path.to_string_lossy().to_string();
         self.configure_new_mise(&mise_bin)?;
-        self.apply_mise_shims_path()?;
         requirements::run_checks(&mise_bin, &self.config.minimum_versions)?;
 
         if self.config.forwarded_mise_args.is_empty() {
@@ -123,15 +122,7 @@ impl InstallState {
             "Enabling mise experimental settings for this new install.",
         );
         let settings_args = ["settings", "experimental=true"];
-        process::run_command(mise_bin, &settings_args, &[], true).map(|_| ())
-    }
-
-    /// Import the shims PATH only when mise was installed during this run.
-    fn apply_mise_shims_path(&self) -> Result<(), String> {
-        if !self.mise_info.installed_now {
-            return Ok(());
-        }
-
+        process::run_command(mise_bin, &settings_args, &[], true).map(|_| ())?;
         mise::apply_bash_shims_path(&self.mise_info.bin_path)
     }
 }
