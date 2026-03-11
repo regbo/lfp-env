@@ -1,11 +1,26 @@
 [tools]
 rust = "stable"
+uv ="0.9"
+yq  ="4"
 
-[env]
-PROJECT_NAME = "{{ config_root | basename }}"
+[tasks.project-name]
+run = "yq -r '.package.name' Cargo.toml"
 
 [tasks.commit]
 run = "uv run --with-requirements requirements.txt -- scripts/deploy.py commit"
 
 [tasks.tag]
 run = "uv run --with-requirements requirements.txt -- python scripts/deploy.py tag"
+
+
+[tasks.build]
+run = '''
+mise exec rust -- cargo build \
+  --bin "$(mise project-name)"
+'''
+
+[tasks.dev]
+depends = ["build"]
+run = '''
+exec "./target/debug/$(mise project-name)"
+'''

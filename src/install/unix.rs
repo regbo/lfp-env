@@ -1,5 +1,8 @@
 use super::config::InstallConfig;
+use super::download;
+use super::mise::{self, MiseInfo};
 use super::platform::{InstallContext, PlatformInstaller};
+use super::process;
 use super::profile;
 use super::{log_install, ActivationOutput};
 use std::env;
@@ -69,10 +72,7 @@ impl PlatformInstaller for UnixPlatform {
         activation: &mut ActivationOutput,
     ) -> Result<(), String> {
         let rendered_dir = self.render_home_relative(&context.home_dir, &mise_info.install_dir);
-        activation.push(format!(
-            "MISE_INSTALL_DIR={}; case \":$PATH:\" in *\":$MISE_INSTALL_DIR:\"*) ;; *) export PATH=\"$MISE_INSTALL_DIR:$PATH\";; esac",
-            shell_double_quote(&rendered_dir)
-        ));
+        activation.push(build_path_activation_line(&rendered_dir));
         activation.push(r#"eval "$(mise activate --shims bash)""#.to_string());
         prepend_path(&mise_info.install_dir);
         Ok(())
@@ -82,17 +82,14 @@ impl PlatformInstaller for UnixPlatform {
         &self,
         config: &InstallConfig,
         context: &InstallContext,
-        mise_info: &super::mise::MiseInfo,
+        mise_info: &MiseInfo,
     ) -> Result<(), String> {
         if !config.activate_profile {
             return Ok(());
         }
         let activate_tag = "#lfp-env-activate".to_string();
         let rendered_dir = self.render_home_relative(&context.home_dir, &mise_info.install_dir);
-        let path_line = format!(
-            "MISE_INSTALL_DIR={}; case \":$PATH:\" in *\":$MISE_INSTALL_DIR:\"*) ;; *) export PATH=\"$MISE_INSTALL_DIR:$PATH\";; esac",
-            shell_double_quote(&rendered_dir)
-        );
+        let path_line = build_path_activation_line(&rendered_dir);
 
         let noninteractive_line = format!(r#"{path_line}; eval "$(mise activate --shims bash)""#);
         let bash_interactive_line = format!(r#"{path_line}; eval "$(mise activate bash)""#);
@@ -119,6 +116,51 @@ impl PlatformInstaller for UnixPlatform {
         }
 
         Ok(())
+    }
+
+    fn find_mise_install_candidate(&self, context: &InstallContext) -> Option<PathBuf> {
+        let bin_path = context.home_dir.join(".local").join("bin").join("mise");
+        if bin_path.is_file() {
+            return Some(bin_path);
+        }
+        None
+    }
+
+    fn install_mise(
+        &self,
+        context: &InstallContext,
+        logging_enabled: bool,
+    ) -> Result<MiseInfo, String> {
+        let local_bin = context.home_dir.join(".local").join("bin");
+        fs::create_dir_all(&local_bin).map_err(|err| {
+            format!(
+                "Could not create mise install directory {}: {err}",
+                local_bin.display()
+            )
+        })?;
+        let install_script = download::download_text("https://mise.run")?;
+        let temp_dir = tempfile::tempdir()
+            .map_err(|err| format!("Could not create temp dir for mise install: {err}"))?;
+        let script_path = temp_dir.path().join("install-mise.sh");
+        fs::write(&script_path, install_script).map_err(|err| {
+            format!(
+                "Could not write mise install script {}: {err}",
+                script_path.display()
+            )
+        })?;
+        let install_path_value = local_bin.join("mise").to_string_lossy().to_string();
+        let extra_env = vec![
+            ("MISE_INSTALL_PATH", install_path_value),
+        ];
+        let args = vec![script_path.to_string_lossy().to_string()];
+        process::run_command("sh", &args, &extra_env, true).map(|_| ())?;
+
+        let bin_path = local_bin.join("mise");
+        if !bin_path.is_file() {
+            return Err("mise installation failed".to_string());
+        }
+        mise::verify_mise_binary(&bin_path, logging_enabled, None)?;
+        mise::resolve_mise_info(bin_path, true)
     }
 
     fn render_home_relative(&self, home_dir: &Path, path: &Path) -> String {
@@ -215,4 +257,12 @@ fn prepend_path(path: &Path) {
 fn shell_double_quote(value: &str) -> String {
     let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
     format!("\"{escaped}\"")
+}
+
+/// Build the reusable Unix PATH activation snippet for the resolved mise install directory.
+fn build_path_activation_line(rendered_dir: &str) -> String {
+    format!(
+        "MISE_INSTALL_DIR={}; case \":$PATH:\" in *\":$MISE_INSTALL_DIR:\"*) ;; *) export PATH=\"$MISE_INSTALL_DIR:$PATH\";; esac",
+        shell_double_quote(rendered_dir)
+    )
 }

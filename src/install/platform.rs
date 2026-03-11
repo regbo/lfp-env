@@ -31,6 +31,16 @@ pub trait PlatformInstaller {
         mise_info: &MiseInfo,
     ) -> Result<(), String>;
 
+    /// Return the default install location for `mise` on this platform.
+    fn find_mise_install_candidate(&self, context: &InstallContext) -> Option<PathBuf>;
+
+    /// Install `mise` using the platform-specific flow.
+    fn install_mise(
+        &self,
+        context: &InstallContext,
+        logging_enabled: bool,
+    ) -> Result<MiseInfo, String>;
+
     fn render_home_relative(&self, home_dir: &Path, path: &Path) -> String;
 }
 

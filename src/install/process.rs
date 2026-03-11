@@ -42,6 +42,22 @@ where
     Ok(stderr_text)
 }
 
+/// Run a command and return captured output without mirroring streams.
+pub fn run_capture<S>(command: &str, args: &[S]) -> Result<String, String>
+where
+    S: AsRef<OsStr>,
+{
+    run_command(command, args, &[], false)
+}
+
+/// Run a command and require success without keeping its output.
+pub fn run_status<S>(command: &str, args: &[S]) -> Result<(), String>
+where
+    S: AsRef<OsStr>,
+{
+    run_command(command, args, &[], false).map(|_| ())
+}
+
 fn write_to_stderr(bytes: &[u8]) -> io::Result<()> {
     if bytes.is_empty() {
         return Ok(());

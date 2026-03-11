@@ -15,11 +15,13 @@ import semver
 
 _LOG = logging.getLogger("deploy")
 _README_PATH = pathlib.Path("README.md")
+_CARGO_TOML_PATH = pathlib.Path("Cargo.toml")
 _URL_PATTERN = re.compile(
     r"https://raw\.githubusercontent\.com/[^/\s]+/[^/\s]+/[^/\s]+/install\.(sh|ps1)"
 )
 _REPO_PATTERN = re.compile(r"(?:[:/])(?P<owner>[^/:]+)/(?P<repo>[^/]+?)(?:\.git)?$")
 _SEMVER_TAG_PATTERN = re.compile(r"^(?P<prefix>v?)(?P<version>\d+\.\d+\.\d+)$")
+_CARGO_VERSION_PATTERN = re.compile(r'^(version\s*=\s*")(?P<version>\d+\.\d+\.\d+)(")\s*$')
 
 
 def _parse_bool(value: str) -> bool:
@@ -106,6 +108,15 @@ def _next_tag(major: bool, minor: bool) -> str:
     return f"{prefix}{bumped}"
 
 
+def _version_from_tag(tag_name: str) -> str:
+    """Extract a plain semver string from a semantic version tag."""
+    parsed = _parse_semver_tag(tag_name)
+    if parsed is None:
+        raise ValueError(f"Tag '{tag_name}' is not a valid semantic version tag.")
+    _, version = parsed
+    return str(version)
+
+
 def _resolve_ref_for_commit() -> str:
     """Use latest alias on main, otherwise use current branch."""
     branch = _detect_branch_name()
@@ -135,6 +146,40 @@ def _rewrite_readme_raw_urls(owner: str, repo: str, ref: str) -> bool:
 
     _README_PATH.write_text(updated, encoding="utf-8")
     _LOG.info("Updated README raw URLs to %s/%s at ref '%s'.", owner, repo, ref)
+    return True
+
+
+def _rewrite_cargo_version(version: str) -> bool:
+    """Update Cargo.toml package.version to match the resolved release tag."""
+    if not _CARGO_TOML_PATH.exists():
+        raise FileNotFoundError("Cargo.toml not found in repository root.")
+
+    content = _CARGO_TOML_PATH.read_text(encoding="utf-8")
+    updated_lines: list[str] = []
+    in_package_section = False
+    replaced = False
+
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            in_package_section = stripped == "[package]"
+        if in_package_section and not replaced:
+            match = _CARGO_VERSION_PATTERN.match(stripped)
+            if match:
+                current_version = match.group("version")
+                if current_version == version:
+                    _LOG.info("Cargo.toml version already set to %s.", version)
+                    return False
+                prefix, suffix = match.group(1), match.group(3)
+                line = f"{prefix}{version}{suffix}"
+                replaced = True
+        updated_lines.append(line)
+
+    if not replaced:
+        raise RuntimeError("Could not find package.version entry in Cargo.toml.")
+
+    _CARGO_TOML_PATH.write_text("\n".join(updated_lines) + "\n", encoding="utf-8")
+    _LOG.info("Updated Cargo.toml version to %s.", version)
     return True
 
 
@@ -200,9 +245,11 @@ def _run_tag_command(
 ) -> None:
     owner, repo = _detect_repo_slug()
     resolved_tag = tag if tag else _next_tag(major=major, minor=minor)
+    resolved_version = _version_from_tag(resolved_tag)
     ref = _resolve_ref_for_commit()
     _LOG.info("Using tag: %s", resolved_tag)
     _rewrite_readme_raw_urls(owner=owner, repo=repo, ref=ref)
+    _rewrite_cargo_version(resolved_version)
     resolved = _resolve_message(
         user_message=message,
         default_message=f"chore: sync README raw URLs to {owner}/{repo}/{ref}",

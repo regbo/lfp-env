@@ -1,11 +1,13 @@
-use log::{debug, info, warn, Level};
-use std::process::Command;
+use crate::install::config::MinimumVersionConfig;
+use crate::install::process;
+use crate::version;
+use log::{debug, info, warn};
 
 /// A program requirement definition for setup checks.
 struct ProgramSpec {
     name: &'static str,
     version_args: &'static [&'static str],
-    min_version: Option<&'static str>,
+    min_version: Option<String>,
     mise_package_name: Option<&'static str>,
     mise_version: Option<&'static str>,
 }
@@ -20,58 +22,51 @@ impl ProgramSpec {
     fn mise_version(&self) -> &'static str {
         self.mise_version.unwrap_or("latest")
     }
+
+    /// Resolve the optional minimum version constraint for the program.
+    fn min_version(&self) -> Option<&str> {
+        self.min_version.as_deref()
+    }
 }
 
-/// Program checks:
-/// - Python must satisfy minimum version
-/// - uv/git must exist (any version accepted)
-const PROGRAM_SPECS: &[ProgramSpec] = &[
-    ProgramSpec {
-        name: "python",
-        version_args: &["--version"],
-        min_version: Some("3.10"),
-        mise_package_name: None,
-        mise_version: None,
-    },
-    ProgramSpec {
-        name: "uv",
-        version_args: &["--version"],
-        min_version: None,
-        mise_package_name: None,
-        mise_version: None,
-    },
-    ProgramSpec {
-        name: "git",
-        version_args: &["--version"],
-        min_version: None,
-        mise_package_name: Some("conda:git"),
-        mise_version: None,
-    },
-];
-
 /// Run all required runtime tool checks.
-pub fn run_checks(mise_bin: &str) -> Result<(), String> {
-    info!("Using mise binary at '{}'", mise_bin);
-    info!("Starting environment program checks");
-    for program in PROGRAM_SPECS {
-        info!("Checking program '{}'", program.name);
+pub fn run_checks(mise_bin: &str, minimum_versions: &MinimumVersionConfig) -> Result<(), String> {
+    debug!("Using mise binary at '{}'", mise_bin);
+    debug!("Starting environment program checks");
+    let program_specs = build_program_specs(minimum_versions);
+    for program in &program_specs {
+        debug!("Checking program '{}'", program.name);
         ensure_program(program, mise_bin)?;
     }
-    info!("Environment program checks complete");
+    debug!("Environment program checks complete");
     Ok(())
 }
 
-fn debug_enabled() -> bool {
-    log::log_enabled!(Level::Debug)
-}
-
-fn debug_lazy<F>(build_message: F)
-where
-    F: FnOnce() -> String,
-{
-    if debug_enabled() {
-        debug!("{}", build_message());
-    }
+/// Build program requirement checks from the selected minimum version config.
+fn build_program_specs(minimum_versions: &MinimumVersionConfig) -> Vec<ProgramSpec> {
+    vec![
+        ProgramSpec {
+            name: "python",
+            version_args: &["--version"],
+            min_version: minimum_versions.python.clone(),
+            mise_package_name: None,
+            mise_version: None,
+        },
+        ProgramSpec {
+            name: "uv",
+            version_args: &["--version"],
+            min_version: minimum_versions.uv.clone(),
+            mise_package_name: None,
+            mise_version: None,
+        },
+        ProgramSpec {
+            name: "git",
+            version_args: &["--version"],
+            min_version: minimum_versions.git.clone(),
+            mise_package_name: Some("conda:git"),
+            mise_version: None,
+        },
+    ]
 }
 
 /// Ensure a program is available and, when required, meets minimum version.
@@ -80,33 +75,16 @@ fn ensure_program(program: &ProgramSpec, mise_bin: &str) -> Result<(), String> {
         "Ensuring program '{}' with version args {:?}, min_version {:?}, mise_package '{}', and mise_version '{}'",
         program.name,
         program.version_args,
-        program.min_version,
+        program.min_version(),
         program.mise_package_name(),
         program.mise_version()
     );
-    let version_output = run_command_capture_check(program.name, program.version_args);
-    let needs_install = match version_output {
-        Ok(output_text) => match program.min_version {
-            Some(min_version) => {
-                if is_version_at_least(&output_text, min_version) {
-                    info!(
-                        "Program '{}' meets minimum version {} (reported: {})",
-                        program.name, min_version, output_text
-                    );
-                    false
-                } else {
-                    warn!(
-                        "Program '{}' is below minimum version {} (reported: {})",
-                        program.name, min_version, output_text
-                    );
-                    true
-                }
-            }
-            None => {
-                info!("Program '{}' is available (reported: {})", program.name, output_text);
-                false
-            }
-        },
+    let inspection = inspect_program(program);
+    let needs_install = match inspection {
+        Ok(output_text) => {
+            log_program_status(program, &output_text);
+            false
+        }
         Err(err) => {
             warn!(
                 "Program '{}' check failed, will install via mise: {}",
@@ -118,10 +96,43 @@ fn ensure_program(program: &ProgramSpec, mise_bin: &str) -> Result<(), String> {
 
     if needs_install {
         install_with_mise(program, mise_bin)?;
+        let output_text = inspect_program(program).map_err(|err| {
+            format!(
+                "Program '{}' still failed validation after mise install: {err}",
+                program.name
+            )
+        })?;
+        log_program_status(program, &output_text);
         info!("Program '{}' installed via mise", program.name);
     }
 
     Ok(())
+}
+
+/// Run the program version command and validate any configured minimum version.
+fn inspect_program(program: &ProgramSpec) -> Result<String, String> {
+    let output_text = run_command_capture_check(program.name, program.version_args)?;
+    if let Some(min_version) = program.min_version() {
+        if !version::is_version_at_least(&output_text, min_version) {
+            return Err(format!(
+                "reported version is below minimum {} (reported: {})",
+                min_version, output_text
+            ));
+        }
+    }
+    Ok(output_text)
+}
+
+/// Emit the appropriate success log after a program passes inspection.
+fn log_program_status(program: &ProgramSpec, output_text: &str) {
+    if let Some(min_version) = program.min_version() {
+        info!(
+            "Program '{}' meets minimum version {} (reported: {})",
+            program.name, min_version, output_text
+        );
+    } else {
+        info!("Program '{}' is available (reported: {})", program.name, output_text);
+    }
 }
 
 /// Install a program using the configured mise package selector and version.
@@ -137,118 +148,26 @@ fn install_with_mise(program: &ProgramSpec, mise_bin: &str) -> Result<(), String
 
 /// Run a command and capture stdout/stderr text when successful.
 fn run_command_capture_check(command: &str, args: &[&str]) -> Result<String, String> {
-    run_command_capture(command, args, true)
-}
-
-fn run_command_capture(
-    command: &str,
-    args: &[&str],
-    check_exit_status: bool,
-) -> Result<String, String> {
     debug!("Running command capture: '{}' with args {:?}", command, args);
-    let output = Command::new(command)
-        .args(args)
-        .output()
-        .map_err(|err| format!("Could not start '{command}': {err}"))?;
-    let stdout_text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let stderr_text = String::from_utf8_lossy(&output.stderr).trim().to_string();
-
-    if check_exit_status && !output.status.success() {
-        return Err(format!(
-            "Command '{command} {}' failed with status {}. stdout={:?} stderr={:?}",
-            args.join(" "),
-            output.status,
-            stdout_text,
-            stderr_text
-        ));
-    }
-    if !stdout_text.is_empty() {
-        if !stderr_text.is_empty() {
-            debug_lazy(|| format!("Command '{}' stderr: {:?}", command, stderr_text));
-        }
-        return Ok(stdout_text);
-    }
-    Ok(stderr_text)
+    process::run_capture(command, args).map(|output| output.trim().to_string())
 }
 
 /// Run a command and require a successful exit status.
 fn run_command_status(command: &str, args: &[&str]) -> Result<(), String> {
     debug!("Running command status: '{}' with args {:?}", command, args);
-    let status = Command::new(command)
-        .args(args)
-        .status()
-        .map_err(|err| format!("Could not start '{command}': {err}"))?;
-
-    if status.success() {
-        return Ok(());
-    }
-
-    Err(format!(
-        "Command '{command} {}' failed with status {status}",
-        args.join(" ")
-    ))
-}
-
-/// Compare program output version against a minimum version requirement.
-/// Uses lenient_semver to parse versions from command output tokens.
-fn is_version_at_least(output: &str, min_version: &str) -> bool {
-    let current = extract_version_token(output).and_then(|token| lenient_semver::parse(&token).ok());
-    let minimum = lenient_semver::parse(min_version).ok();
-    match (current, minimum) {
-        (Some(current_version), Some(minimum_version)) => current_version >= minimum_version,
-        _ => false,
-    }
-}
-
-/// Extract the first parseable version token from command output.
-/// Examples:
-/// - "Python 3.10.12" -> 3.10.12
-/// - "uv 0.5.22 (abcd)" -> 0.5.22
-fn extract_version_token(output: &str) -> Option<String> {
-    for raw_token in output.split_whitespace() {
-        let cleaned = raw_token.trim_matches(|ch: char| !ch.is_ascii_alphanumeric() && ch != '.');
-        if cleaned.is_empty() {
-            continue;
-        }
-        if lenient_semver::parse(cleaned).is_ok() {
-            return Some(cleaned.to_string());
-        }
-    }
-    None
+    process::run_status(command, args)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_version_token, is_version_at_least, ProgramSpec};
-
-    #[test]
-    fn parses_full_python_version() {
-        let parsed = extract_version_token("Python 3.11.7");
-        assert_eq!(parsed, Some("3.11.7".to_string()));
-    }
-
-    #[test]
-    fn parses_prefixed_uv_version() {
-        let parsed = extract_version_token("uv 0.5.22 (Homebrew 2025-03-01)");
-        assert_eq!(parsed, Some("0.5.22".to_string()));
-    }
-
-    #[test]
-    fn detects_minimum_version_success() {
-        assert!(is_version_at_least("Python 3.10.1", "3.10"));
-    }
-
-    #[test]
-    fn detects_minimum_version_failure() {
-        assert!(!is_version_at_least("Python 3.9.21", "3.10"));
-    }
+    use super::{build_program_specs, MinimumVersionConfig, ProgramSpec};
 
     #[test]
     fn defaults_mise_package_name_to_requirement_name() {
         let program = ProgramSpec {
             name: "python",
             version_args: &["--version"],
-            min_version: Some("3.10"),
+            min_version: Some("3.10".to_string()),
             mise_package_name: None,
             mise_version: None,
         };
@@ -277,5 +196,18 @@ mod tests {
             mise_version: None,
         };
         assert_eq!(program.mise_package_name(), "github-cli");
+    }
+
+    #[test]
+    fn builds_program_specs_from_selected_minimum_versions() {
+        let specs = build_program_specs(&MinimumVersionConfig {
+            mise: Some("2024.11.0".to_string()),
+            python: Some("3.10".to_string()),
+            uv: Some("0.9.9".to_string()),
+            git: None,
+        });
+        assert_eq!(specs[0].min_version(), Some("3.10"));
+        assert_eq!(specs[1].min_version(), Some("0.9.9"));
+        assert_eq!(specs[2].min_version(), None);
     }
 }

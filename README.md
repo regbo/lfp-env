@@ -87,9 +87,6 @@ These variables are consumed by the Rust installer mode:
 - `LFP_ENV_ACTIVATE_PROFILE`
   Default: `1`
   Enables writing activation lines to shell profile files.
-- `LFP_ENV_DISABLE_RUN`
-  Default: `0`
-  Performs installer setup and emits activation output without running `lfp-env`.
 - `LFP_ENV_LOGGING_ENABLED`
   Default: `1`
   Controls installer logging on stderr. Set to `0` to suppress installer log lines.

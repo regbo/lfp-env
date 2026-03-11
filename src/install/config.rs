@@ -1,20 +1,32 @@
 use std::env;
 
+/// Minimum version checks that can be overridden through CLI flags or env vars.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MinimumVersionConfig {
+    pub mise: Option<String>,
+    pub python: Option<String>,
+    pub uv: Option<String>,
+    pub git: Option<String>,
+}
+
 /// Installer configuration read from environment variables.
 pub struct InstallConfig {
     pub activate_profile: bool,
-    pub disable_run: bool,
     pub logging_enabled: bool,
+    pub minimum_versions: MinimumVersionConfig,
     pub forwarded_mise_args: Vec<String>,
 }
 
 impl InstallConfig {
     /// Build installer configuration from the current process environment.
-    pub fn from_env(forwarded_mise_args: Vec<String>) -> Result<Self, String> {
+    pub fn from_env(
+        forwarded_mise_args: Vec<String>,
+        minimum_versions: MinimumVersionConfig,
+    ) -> Result<Self, String> {
         Ok(Self {
             activate_profile: read_bool_env("LFP_ENV_ACTIVATE_PROFILE", true)?,
-            disable_run: read_bool_env("LFP_ENV_DISABLE_RUN", false)?,
             logging_enabled: read_bool_env("LFP_ENV_LOGGING_ENABLED", true)?,
+            minimum_versions,
             forwarded_mise_args,
         })
     }

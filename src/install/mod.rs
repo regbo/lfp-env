@@ -1,5 +1,4 @@
 pub mod config;
-#[cfg(not(windows))]
 pub mod download;
 pub mod mise;
 pub mod platform;
@@ -13,6 +12,7 @@ pub mod windows;
 use self::config::InstallConfig;
 use self::platform::create_platform;
 use self::platform::InstallContext;
+use crate::cli::CliOptions;
 use crate::requirements;
 use log::info;
 
@@ -49,11 +49,17 @@ struct InstallState {
 
 impl InstallState {
     /// Build the full installer state from env and platform detection.
-    fn new(forwarded_mise_args: Vec<String>) -> Result<Self, String> {
-        let mut config = InstallConfig::from_env(forwarded_mise_args)?;
+    fn new(options: CliOptions) -> Result<Self, String> {
+        let mut config =
+            InstallConfig::from_env(options.forwarded_args, options.minimum_versions)?;
         let platform = create_platform();
         let context = platform.prepare_environment(&mut config)?;
-        let mise_info = mise::ensure_available(platform.as_ref(), &context, config.logging_enabled)?;
+        let mise_info = mise::ensure_available(
+            platform.as_ref(),
+            &context,
+            config.logging_enabled,
+            config.minimum_versions.mise.as_deref(),
+        )?;
         Ok(Self {
             config,
             platform,
@@ -87,13 +93,9 @@ impl InstallState {
 
     /// Ensure default tools exist via mise, then forward remaining args to mise directly.
     fn run_post_install_actions(&self) -> Result<(), String> {
-        if self.config.disable_run {
-            return Ok(());
-        }
-
         let mise_bin = self.mise_info.bin_path.to_string_lossy().to_string();
         self.configure_new_mise(&mise_bin)?;
-        requirements::run_checks(&mise_bin)?;
+        requirements::run_checks(&mise_bin, &self.config.minimum_versions)?;
 
         if self.config.forwarded_mise_args.is_empty() {
             return Ok(());
@@ -125,8 +127,8 @@ impl InstallState {
 }
 
 /// Run the installer orchestration path.
-pub fn run(forwarded_mise_args: Vec<String>) -> Result<(), String> {
-    let mut state = InstallState::new(forwarded_mise_args)?;
+pub fn run(options: CliOptions) -> Result<(), String> {
+    let mut state = InstallState::new(options)?;
     state.build_activation()?;
     state.update_profiles()?;
     state.activation.print();
