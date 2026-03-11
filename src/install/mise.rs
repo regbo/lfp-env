@@ -2,6 +2,8 @@ use super::log_install;
 use super::platform::{InstallContext, PlatformInstaller};
 use super::process;
 use crate::version;
+use log::debug;
+use std::env;
 use std::path::{Path, PathBuf};
 
 /// Resolved `mise` details after discovery or installation.
@@ -50,6 +52,36 @@ pub fn ensure_available(
     verify_mise_binary(&mise_info.bin_path, logging_enabled, min_version)?;
     log_mise_info(platform, context, logging_enabled, &mise_info);
     Ok(mise_info)
+}
+
+/// Apply the PATH exported by `mise activate --shims bash` to the current process.
+pub fn apply_bash_shims_path(bin_path: &Path) -> Result<(), String> {
+    #[cfg(not(unix))]
+    {
+        let _ = bin_path;
+        return Ok(());
+    }
+
+    #[cfg(unix)]
+    {
+        let activation_output = process::run_capture(
+            bin_path.to_string_lossy().as_ref(),
+            &["activate", "--shims", "bash"],
+        )?;
+        let Some(exported_path) = extract_exported_path(&activation_output) else {
+            debug!(
+                "No PATH export found in 'mise activate --shims bash' output, leaving PATH unchanged"
+            );
+            return Ok(());
+        };
+        let resolved_path = resolve_exported_path(&exported_path);
+        debug!(
+            "Applying PATH from 'mise activate --shims bash': {}",
+            resolved_path
+        );
+        env::set_var("PATH", resolved_path);
+        Ok(())
+    }
 }
 
 /// Build the shared `mise` metadata used by activation and profile updates.
@@ -171,4 +203,75 @@ fn parent_dir(path: &Path) -> Result<PathBuf, String> {
     path.parent()
         .map(Path::to_path_buf)
         .ok_or_else(|| format!("Could not determine parent directory for {}", path.display()))
+}
+
+/// Extract the PATH assignment emitted by `mise activate --shims bash`.
+fn extract_exported_path(activation_output: &str) -> Option<String> {
+    activation_output.lines().find_map(|line| {
+        let trimmed = line.trim();
+        let path_value = trimmed.strip_prefix("export PATH=")?;
+        Some(unquote_shell_value(path_value))
+    })
+}
+
+/// Resolve a shell PATH assignment by expanding the current process PATH placeholder.
+fn resolve_exported_path(path_value: &str) -> String {
+    let current_path = env::var("PATH").unwrap_or_default();
+    path_value
+        .replace("${PATH}", &current_path)
+        .replace("$PATH", &current_path)
+}
+
+/// Remove a single layer of matching shell quotes around an exported value.
+fn unquote_shell_value(value: &str) -> String {
+    if value.len() >= 2 {
+        let bytes = value.as_bytes();
+        let first = bytes[0];
+        let last = bytes[value.len() - 1];
+        if (first == b'"' && last == b'"') || (first == b'\'' && last == b'\'') {
+            return value[1..value.len() - 1].to_string();
+        }
+    }
+    value.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{extract_exported_path, resolve_exported_path, unquote_shell_value};
+
+    #[test]
+    fn extracts_exported_path_from_activation_output() {
+        let output = "export PATH=\"/tmp/mise/shims:/tmp/bin:$PATH\"\nexport MISE_SHELL=bash";
+        assert_eq!(
+            extract_exported_path(output).as_deref(),
+            Some("/tmp/mise/shims:/tmp/bin:$PATH")
+        );
+    }
+
+    #[test]
+    fn ignores_activation_output_without_path_export() {
+        let output = "export MISE_SHELL=bash";
+        assert_eq!(extract_exported_path(output), None);
+    }
+
+    #[test]
+    fn resolves_path_placeholders_against_current_process_path() {
+        let original_path = std::env::var("PATH").ok();
+        std::env::set_var("PATH", "/usr/bin:/bin");
+        assert_eq!(
+            resolve_exported_path("/tmp/mise/shims:$PATH"),
+            "/tmp/mise/shims:/usr/bin:/bin"
+        );
+        match original_path {
+            Some(path) => std::env::set_var("PATH", path),
+            None => std::env::remove_var("PATH"),
+        }
+    }
+
+    #[test]
+    fn unquotes_shell_values() {
+        assert_eq!(unquote_shell_value("\"/tmp/path\""), "/tmp/path");
+        assert_eq!(unquote_shell_value("'/tmp/path'"), "/tmp/path");
+        assert_eq!(unquote_shell_value("/tmp/path"), "/tmp/path");
+    }
 }

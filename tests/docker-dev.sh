@@ -1,5 +1,7 @@
 docker run -it --rm \
   --entrypoint /bin/sh \
-  -v /Users/reggie.pierce/Projects/github-regbo/lfp-env:/lfp-env \
+  -v $PWD:/lfp-env:ro \
   debian:stable-slim \
   -c 'apt-get update && apt-get install -y curl && exec /bin/sh'
+
+# LFP_ENV_INSTALL_PATH="$PWD/target/debug/lfp-env" eval "$(sh /lfp-env/install.sh)"
