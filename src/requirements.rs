@@ -143,7 +143,10 @@ fn install_with_mise(program: &ProgramSpec, mise_bin: &str) -> Result<(), String
         program.name, tool_selector
     );
     run_command_status(mise_bin, &["use", "-g", &tool_selector])
-        .map_err(|err| format!("Failed to install {} via mise: {err}", program.name))
+        .map_err(|err| format!("Failed to install {} via mise: {err}", program.name))?;
+    debug!("Running 'mise reshim' after installing '{}'", program.name);
+    run_command_status(mise_bin, &["reshim"])
+        .map_err(|err| format!("Failed to reshim {} via mise: {err}", program.name))
 }
 
 /// Run a command and capture stdout/stderr text when successful.
