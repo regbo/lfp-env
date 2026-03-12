@@ -55,7 +55,7 @@ detect_asset_name() {
     machine_name=$(uname -m)
 
     case "$kernel_name" in
-        Linux)  os_target="unknown-linux-gnu" ;;
+        Linux)  os_target="unknown-linux-musl" ;;
         Darwin) os_target="apple-darwin" ;;
         *) printf "ERROR: unsupported operating system: %s\n" "$kernel_name" >&2; exit 1 ;;
     esac
