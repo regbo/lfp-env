@@ -10,8 +10,8 @@ pub mod unix;
 pub mod windows;
 
 use self::config::InstallConfig;
-use self::platform::create_platform;
-use self::platform::InstallContext;
+use self::mise::MiseInfo;
+use self::platform::{create_platform, InstallContext};
 use crate::cli::CliOptions;
 use crate::requirements;
 use log::info;
@@ -43,7 +43,7 @@ struct InstallState {
     config: InstallConfig,
     platform: Box<dyn platform::PlatformInstaller>,
     context: InstallContext,
-    mise_info: mise::MiseInfo,
+    mise_info: MiseInfo,
     activation: ActivationOutput,
 }
 

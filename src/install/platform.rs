@@ -1,6 +1,6 @@
 use super::config::InstallConfig;
-use super::mise::MiseInfo;
 use super::ActivationOutput;
+use super::mise::MiseInfo;
 use std::path::{Path, PathBuf};
 
 /// Shared installer context prepared by a platform implementation.

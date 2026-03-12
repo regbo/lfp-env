@@ -1,30 +1,13 @@
 # lfp-env
 
-Bootstrap installers for `lfp-env` plus a Rust CLI that validates the base toolchain needed to use the environment.
+`lfp-env` bootstraps a working local environment by installing or reusing `mise`, activating it in your current shell, and ensuring the default tools needed by this project are available.
 
-## What it does
+By default it makes sure these tools are ready to use:
 
-The shell wrappers are now thin bootstraps. They:
-
-- resolves a usable `HOME`
-- downloads or reuses the `lfp-env` binary
-- invokes the Rust installer entrypoint
-
-The Rust installer mode then:
-
-- resolves `HOME` and `TMPDIR` fallbacks where applicable
-- installs or discovers `mise`
-- emits shell activation commands on stdout
-- optionally updates shell profiles
-- ensures the default toolchain (`git`, `python`, `uv`) through `mise`
-- forwards any remaining installer arguments to `mise`
-
-The normal Rust runtime mode:
-
-- checks `python` and requires `>= 3.10`
-- checks that `uv` exists
-- checks that `git` exists
-- installs any missing requirement via `mise use -g <tool>@latest`
+- `mise`
+- `python` with minimum version `3.10`
+- `uv` with minimum version `0.9.9`
+- `git`
 
 ## Quick Start
 
@@ -34,7 +17,11 @@ The normal Rust runtime mode:
 eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-env/latest/install.sh | sh)"
 ```
 
-Unix bootstrap logs go to stderr. Activation commands come from the Rust installer on stdout, and `eval "$(...)"` applies them to the current shell.
+If `curl` is not available, `wget` works too:
+
+```sh
+eval "$(wget -qO- https://raw.githubusercontent.com/regbo/lfp-env/latest/install.sh | sh)"
+```
 
 ### Windows (PowerShell)
 
@@ -42,18 +29,63 @@ Unix bootstrap logs go to stderr. Activation commands come from the Rust install
 & ([scriptblock]::Create((irm -useb https://raw.githubusercontent.com/regbo/lfp-env/latest/install.ps1))) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { Invoke-Expression $_ }
 ```
 
-Windows bootstrap logs also go to stderr. Activation commands come from the Rust installer on stdout and are evaluated into the current PowerShell session.
+The installers write logs to stderr and emit activation commands on stdout. The examples above evaluate that stdout in your current shell so the environment is ready immediately.
+
+## Verify Your Install
+
+Run these after installation:
+
+```sh
+mise --version
+python --version
+uv --version
+git --version
+```
+
+If the install succeeded, all four commands should work in the current shell.
+
+## Install A Specific Version
+
+On macOS/Linux:
+
+```sh
+LFP_ENV_VERSION=0.2.6 eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-env/latest/install.sh | sh)"
+```
+
+With `wget`:
+
+```sh
+LFP_ENV_VERSION=0.2.6 eval "$(wget -qO- https://raw.githubusercontent.com/regbo/lfp-env/latest/install.sh | sh)"
+```
+
+On Windows (PowerShell):
+
+```powershell
+$env:LFP_ENV_VERSION = "0.2.6"
+& ([scriptblock]::Create((irm -useb https://raw.githubusercontent.com/regbo/lfp-env/latest/install.ps1))) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { Invoke-Expression $_ }
+```
+
+## What It Does
+
+During installation, `lfp-env`:
+
+- downloads or reuses the `lfp-env` binary
+- resolves a usable `HOME`
+- installs or discovers `mise`
+- activates `mise` for the current shell
+- optionally updates shell profile files
+- installs missing default tools through `mise`
 
 ## Local Development
 
-To test the current checkout on Unix, build the local binary first and point the bootstrap wrapper at it:
+To test the current checkout on macOS/Linux:
 
 ```sh
 mise exec rust -- cargo build --bin lfp-env
 LFP_ENV_INSTALL_PATH="$PWD/target/debug/lfp-env" eval "$(sh ./install.sh)"
 ```
 
-On Windows, build the local binary first and point the bootstrap wrapper at it:
+To test the current checkout on Windows:
 
 ```powershell
 $env:LFP_ENV_INSTALL_PATH = "$PWD\target\debug\lfp-env.exe"
@@ -61,58 +93,65 @@ mise exec rust -- cargo build --bin lfp-env
 .\install.ps1 | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { Invoke-Expression $_ }
 ```
 
-## Bootstrap Variables
+## CLI
 
-These variables are read by the shell wrappers before Rust installer mode starts:
+| CLI flag | Environment variable | Default |
+| --- | --- | --- |
+| `--version` | n/a | prints the current `lfp-env` version |
+| `--log-level <level>` | `LFP_ENV_LOG_LEVEL` | `info` |
+| `--mise-min-version <version>` | `LFP_ENV_MISE_MIN_VERSION` | unset |
+| `--python-min-version <version>` | `LFP_ENV_PYTHON_MIN_VERSION` | `3.10` |
+| `--uv-min-version <version>` | `LFP_ENV_UV_MIN_VERSION` | `0.9.9` |
+| `--git-min-version <version>` | `LFP_ENV_GIT_MIN_VERSION` | unset |
+
+`lfp-env --version` prints only the raw semver, for example `0.2.6`.
+
+When the installer wrappers use the internal installer mode, any remaining arguments after `--` are forwarded to `mise` after the default toolchain setup completes.
+
+## Configuration
+
+Bootstrap wrapper variables:
 
 - `LFP_ENV_REPO`
   Default: `regbo/lfp-env`
   Selects which GitHub repository to download release assets from.
 - `LFP_ENV_VERSION`
   Default: unset
-  When set, downloads `v<version>` instead of `latest` and requires the bootstrap binary to match that exact version.
+  Downloads `v<version>` instead of `latest` and requires the bootstrap binary to match that exact version.
 - `LFP_ENV_MIN_VERSION`
   Default: unset
   Requires the existing bootstrap binary version to be at least this version.
 - `LFP_ENV_INSTALL_PATH`
-  Default:
-  Unix: `${HOME}/.local/bin/lfp-env`
-  Windows: `%LOCALAPPDATA%\\bin\\lfp-env.exe`
+  Default on Unix: `${HOME}/.local/bin/lfp-env`
+  Default on Windows: `%LOCALAPPDATA%\bin\lfp-env.exe`
   Overrides where the bootstrap wrapper stores and executes the `lfp-env` binary.
 
-## Rust Installer Variables
-
-These variables are consumed by the Rust installer mode:
+Installer variables:
 
 - `LFP_ENV_ACTIVATE_PROFILE`
   Default: `1`
-  Enables writing activation lines to shell profile files.
+  Writes activation lines to shell profile files when possible.
 - `LFP_ENV_LOGGING_ENABLED`
   Default: `1`
-  Controls installer logging on stderr. Set to `0` to suppress installer log lines.
-- `LFP_ENV_LOG_LEVEL`
-  Default: `info`
-  Controls the normal `lfp-env` runtime log level when invoking the non-installer mode directly.
+  Controls installer logging on stderr.
 
-## Activation Behavior
+## Shell Behavior
 
-The Rust installer emits activation commands on stdout.
+On Unix, the emitted activation commands:
 
-On Unix, the emitted commands:
-
-- ensure `MISE_INSTALL_DIR` is on `PATH`
+- ensure the `mise` install directory is on `PATH`
 - run `eval "$(mise activate --shims bash)"`
 - export `HOME` if the installer had to fall back away from the incoming environment
 - export `TMPDIR` as `${HOME}/.tmp` when no writable temp directory is already available
 
-On Windows, the emitted commands:
+On Windows, the emitted activation commands:
 
 - ensure the installed `mise` bin directory is on `PATH`
 - run `mise activate --shims pwsh` in the current PowerShell session
 
 ## Profile Updates
 
-When `LFP_ENV_ACTIVATE_PROFILE=1` and `HOME` did not need to be rewritten, the Unix Rust installer updates these files when applicable:
+When `LFP_ENV_ACTIVATE_PROFILE=1` and `HOME` did not need to be rewritten, Unix updates these files when applicable:
 
 - `~/.profile`
 - `~/.bash_profile`
@@ -121,48 +160,20 @@ When `LFP_ENV_ACTIVATE_PROFILE=1` and `HOME` did not need to be rewritten, the U
 - `~/.bashrc`
 - `~/.zshrc`
 
-Interactive shell profiles get `mise activate <shell>`. Non-interactive profiles get `mise activate --shims bash`.
-
-On Windows, when `mise` is newly installed, the Rust installer updates:
+On Windows, when `mise` is newly installed, the installer updates:
 
 - `~/Documents/PowerShell/Microsoft.PowerShell_profile.ps1`
 
-The inserted PowerShell activation uses `mise activate --shims pwsh`.
+## Maintenance
 
-## Rust CLI
-
-The user-facing Rust CLI supports:
-
-```text
-lfp-env --log-level <error|warn|info|debug|trace|off>
-lfp-env --version
-```
-
-`lfp-env --version` prints only the raw semver, for example `0.1.0`, so shell installers can compare versions safely.
-
-`LFP_ENV_LOG_LEVEL` is read when `--log-level` is not provided.
-
-The shell wrappers use an internal Rust installer mode via `LFP_ENV_INSTALLER_MODE=1`. That mode is not intended as a public interface.
-
-When hidden installer mode is used through `install.sh` or `install.ps1`, only installer-specific flags are parsed by `lfp-env`. Any remaining arguments after `--` are forwarded to `mise` after the default toolchain setup completes.
-
-## Task Runner
-
-Tasks are defined in `mise.toml`:
+Useful project tasks:
 
 - `mise run commit`
 - `mise run tag`
+- `mise build --os <os> --arch <arch>`
+- `mise dev --os <os> --arch <arch>`
 
-Those tasks call `scripts/deploy.py`:
-
-- `mise run commit` -> `uv run --with-requirements requirements.txt -- scripts/deploy.py commit`
-- `mise run tag` -> `uv run --with-requirements requirements.txt -- python scripts/deploy.py tag`
-
-## Testing
-
-The test suite is intentionally minimal and only smoke-tests the built Rust binary.
-
-Run the full suite with:
+Run the test suite with:
 
 ```sh
 mise exec rust -- cargo build --bin lfp-env

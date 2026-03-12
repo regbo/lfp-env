@@ -68,7 +68,7 @@ impl PlatformInstaller for UnixPlatform {
     fn append_mise_activation(
         &self,
         context: &InstallContext,
-        mise_info: &super::mise::MiseInfo,
+        mise_info: &MiseInfo,
         activation: &mut ActivationOutput,
     ) -> Result<(), String> {
         let rendered_dir = self.render_home_relative(&context.home_dir, &mise_info.install_dir);
@@ -90,27 +90,27 @@ impl PlatformInstaller for UnixPlatform {
         let activate_tag = "#lfp-env-activate".to_string();
         let rendered_dir = self.render_home_relative(&context.home_dir, &mise_info.install_dir);
         let path_line = build_path_activation_line(&rendered_dir);
-
-        let noninteractive_line = format!(r#"{path_line}; eval "$(mise activate --shims bash)""#);
-        let bash_interactive_line = format!(r#"{path_line}; eval "$(mise activate bash)""#);
-        let zsh_interactive_line = format!(r#"{path_line}; eval "$(mise activate zsh)""#);
-
         let home_dir = &context.home_dir;
         let specs = vec![
-            (home_dir.join(".profile"), noninteractive_line.clone(), true),
-            (home_dir.join(".bash_profile"), noninteractive_line.clone(), false),
-            (home_dir.join(".zshenv"), noninteractive_line.clone(), false),
-            (home_dir.join(".zprofile"), noninteractive_line, false),
-            (home_dir.join(".bashrc"), bash_interactive_line, false),
-            (home_dir.join(".zshrc"), zsh_interactive_line, false),
+            ProfileSpec::new(home_dir.join(".profile"), ActivationShell::NonInteractive, true),
+            ProfileSpec::new(
+                home_dir.join(".bash_profile"),
+                ActivationShell::NonInteractive,
+                false,
+            ),
+            ProfileSpec::new(home_dir.join(".zshenv"), ActivationShell::NonInteractive, false),
+            ProfileSpec::new(home_dir.join(".zprofile"), ActivationShell::NonInteractive, false),
+            ProfileSpec::new(home_dir.join(".bashrc"), ActivationShell::BashInteractive, false),
+            ProfileSpec::new(home_dir.join(".zshrc"), ActivationShell::ZshInteractive, false),
         ];
 
-        for (profile_path, profile_line, create_if_missing) in specs {
+        for spec in specs {
+            let profile_line = spec.render_line(&path_line);
             profile::update_tagged_profile_line(
-                &profile_path,
+                &spec.path,
                 &profile_line,
                 &activate_tag,
-                create_if_missing,
+                spec.create_if_missing,
                 config.logging_enabled,
             )?;
         }
@@ -129,7 +129,7 @@ impl PlatformInstaller for UnixPlatform {
     fn install_mise(
         &self,
         context: &InstallContext,
-        logging_enabled: bool,
+        _logging_enabled: bool,
     ) -> Result<MiseInfo, String> {
         let local_bin = context.home_dir.join(".local").join("bin");
         fs::create_dir_all(&local_bin).map_err(|err| {
@@ -159,7 +159,6 @@ impl PlatformInstaller for UnixPlatform {
         if !bin_path.is_file() {
             return Err("mise installation failed".to_string());
         }
-        mise::verify_mise_binary(&bin_path, logging_enabled, None)?;
         mise::resolve_mise_info(bin_path, true)
     }
 
@@ -257,6 +256,45 @@ fn prepend_path(path: &Path) {
 fn shell_double_quote(value: &str) -> String {
     let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
     format!("\"{escaped}\"")
+}
+
+/// Distinguish profile activation behavior by shell mode instead of by raw strings.
+enum ActivationShell {
+    NonInteractive,
+    BashInteractive,
+    ZshInteractive,
+}
+
+/// Describe one profile file that may need an lfp-env activation line.
+struct ProfileSpec {
+    path: PathBuf,
+    shell: ActivationShell,
+    create_if_missing: bool,
+}
+
+impl ProfileSpec {
+    fn new(path: PathBuf, shell: ActivationShell, create_if_missing: bool) -> Self {
+        Self {
+            path,
+            shell,
+            create_if_missing,
+        }
+    }
+
+    /// Render the correct activation command for this profile file.
+    fn render_line(&self, path_line: &str) -> String {
+        match self.shell {
+            ActivationShell::NonInteractive => {
+                format!(r#"{path_line}; eval "$(mise activate --shims bash)""#)
+            }
+            ActivationShell::BashInteractive => {
+                format!(r#"{path_line}; eval "$(mise activate bash)""#)
+            }
+            ActivationShell::ZshInteractive => {
+                format!(r#"{path_line}; eval "$(mise activate zsh)""#)
+            }
+        }
+    }
 }
 
 /// Build the reusable Unix PATH activation snippet for the resolved mise install directory.

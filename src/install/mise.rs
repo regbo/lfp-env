@@ -59,7 +59,7 @@ pub fn apply_bash_shims_path(bin_path: &Path) -> Result<(), String> {
     #[cfg(not(unix))]
     {
         let _ = bin_path;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(unix)]
@@ -85,7 +85,7 @@ pub fn apply_bash_shims_path(bin_path: &Path) -> Result<(), String> {
 }
 
 /// Build the shared `mise` metadata used by activation and profile updates.
-pub(crate) fn resolve_mise_info(bin_path: PathBuf, installed_now: bool) -> Result<MiseInfo, String> {
+pub fn resolve_mise_info(bin_path: PathBuf, installed_now: bool) -> Result<MiseInfo, String> {
     let install_dir = parent_dir(&bin_path)?;
     let shim_path = find_mise_shim_path(&install_dir);
     Ok(MiseInfo {
@@ -97,7 +97,7 @@ pub(crate) fn resolve_mise_info(bin_path: PathBuf, installed_now: bool) -> Resul
 }
 
 /// Verify that the resolved `mise` binary can answer `-v` before reuse.
-pub(crate) fn verify_mise_binary(
+fn verify_mise_binary(
     bin_path: &Path,
     logging_enabled: bool,
     min_version: Option<&str>,

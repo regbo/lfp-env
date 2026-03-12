@@ -1,13 +1,13 @@
 #[cfg(windows)]
 use super::config::InstallConfig;
 #[cfg(windows)]
-use super::download;
-#[cfg(windows)]
 use super::mise::{self, MiseInfo};
 #[cfg(windows)]
 use super::platform::{InstallContext, PlatformInstaller};
 #[cfg(windows)]
 use super::profile;
+#[cfg(windows)]
+use serde::de::DeserializeOwned;
 #[cfg(windows)]
 use super::{log_install, ActivationOutput};
 #[cfg(windows)]
@@ -111,7 +111,7 @@ impl PlatformInstaller for WindowsPlatform {
         );
 
         log_install(logging_enabled, &format!("Downloading {download_url}"));
-        let archive_bytes = download::download_bytes(&download_url)?;
+        let archive_bytes = download_bytes(&download_url)?;
         let temp_dir = tempfile::tempdir()
             .map_err(|err| format!("Could not create temp dir for mise install: {err}"))?;
         let archive_path = temp_dir.path().join(&asset_name);
@@ -168,7 +168,6 @@ impl PlatformInstaller for WindowsPlatform {
         ensure_windows_path_contains(&install_dir, &user_path, logging_enabled)?;
 
         log_install(logging_enabled, &format!("Installed to {}", install_dir.display()));
-        mise::verify_mise_binary(&bin_path, logging_enabled, None)?;
         mise::resolve_mise_info(bin_path, true)
     }
 
@@ -219,8 +218,45 @@ struct GithubRelease {
 
 #[cfg(windows)]
 fn latest_mise_release() -> Result<GithubRelease, String> {
-    download::download_json("https://api.github.com/repos/jdx/mise/releases/latest")
+    download_json("https://api.github.com/repos/jdx/mise/releases/latest")
         .map_err(|err| format!("Could not query mise latest release: {err}"))
+}
+
+#[cfg(windows)]
+fn build_http_client() -> Result<reqwest::blocking::Client, String> {
+    reqwest::blocking::Client::builder()
+        .build()
+        .map_err(|err| format!("Could not build HTTP client: {err}"))
+}
+
+#[cfg(windows)]
+fn get_http_response(url: &str) -> Result<reqwest::blocking::Response, String> {
+    let response = build_http_client()?
+        .get(url)
+        .header(reqwest::header::USER_AGENT, "lfp-env-installer")
+        .send()
+        .map_err(|err| format!("Could not download {url}: {err}"))?;
+    response
+        .error_for_status()
+        .map_err(|err| format!("Download failed for {url}: {err}"))
+}
+
+#[cfg(windows)]
+fn download_bytes(url: &str) -> Result<Vec<u8>, String> {
+    get_http_response(url)?
+        .bytes()
+        .map(|bytes| bytes.to_vec())
+        .map_err(|err| format!("Could not read downloaded bytes from {url}: {err}"))
+}
+
+#[cfg(windows)]
+fn download_json<T>(url: &str) -> Result<T, String>
+where
+    T: DeserializeOwned,
+{
+    get_http_response(url)?
+        .json::<T>()
+        .map_err(|err| format!("Could not parse JSON response from {url}: {err}"))
 }
 
 #[cfg(windows)]
