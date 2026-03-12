@@ -67,13 +67,11 @@ $env:LFP_ENV_VERSION = "0.2.6"
 
 ## Install Extra Tools
 
-Any extra arguments passed to `install.sh` or `install.ps1` are forwarded as:
+Pass package selectors after the installer command to install them globally with `mise`.
 
 ```text
 mise use -g ...
 ```
-
-You do not need `--` before those tool names.
 
 For example, on macOS/Linux:
 
@@ -81,7 +79,7 @@ For example, on macOS/Linux:
 eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-env/latest/install.sh | sh -s yq@latest jq)"
 ```
 
-That behaves like:
+This installs `yq@latest` and `jq`.
 
 ```sh
 mise use -g yq@latest jq
@@ -134,7 +132,7 @@ mise exec rust -- cargo build --bin lfp-env
 
 `lfp-env --version` prints only the raw semver, for example `0.2.6`.
 
-Any unrecognized trailing arguments are treated as package selectors and run as `mise use -g ...` after the default toolchain setup completes.
+Trailing package selectors are installed with `mise use -g ...` after the default toolchain setup completes.
 
 ## Configuration
 
