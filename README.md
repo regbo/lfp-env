@@ -132,6 +132,8 @@ mise exec rust -- cargo build --bin lfp-env
 
 `lfp-env --version` prints only the raw semver, for example `0.2.6`.
 
+Set `LFP_ENV_LOG_LEVEL=0` to disable routine stderr logging.
+
 Trailing package selectors are installed with `mise use -g ...` after the default toolchain setup completes.
 
 ## Configuration
@@ -157,9 +159,6 @@ Installer variables:
 - `LFP_ENV_ACTIVATE_PROFILE`
   Default: `1`
   Writes activation lines to shell profile files when possible.
-- `LFP_ENV_LOGGING_ENABLED`
-  Default: `1`
-  Controls installer logging on stderr.
 
 ## Shell Behavior
 

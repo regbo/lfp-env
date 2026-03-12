@@ -9,8 +9,13 @@ $VERSION = $env:LFP_ENV_VERSION
 $MIN_VERSION = $env:LFP_ENV_MIN_VERSION
 $INSTALL_PATH = $env:LFP_ENV_INSTALL_PATH
 
+function logging_enabled {
+    return $env:LFP_ENV_LOG_LEVEL -ne "0"
+}
+
 function log {
     param([string]$msg)
+    if (-not (logging_enabled)) { return }
     Write-Error "[lfp-env-install] $msg"
 }
 

@@ -6,7 +6,14 @@ VERSION="${LFP_ENV_VERSION:-}"
 MIN_VERSION="${LFP_ENV_MIN_VERSION:-}"
 INSTALL_PATH="${LFP_ENV_INSTALL_PATH:-}"
 
+logging_enabled() {
+    [ "${LFP_ENV_LOG_LEVEL:-}" != "0" ]
+}
+
 log() {
+    if ! logging_enabled; then
+        return 0
+    fi
     printf "%s %s\n" "[lfp-env-install]" "$*" >&2
 }
 

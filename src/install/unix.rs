@@ -129,7 +129,7 @@ impl PlatformInstaller for UnixPlatform {
     fn install_mise(
         &self,
         context: &InstallContext,
-        _logging_enabled: bool,
+        logging_enabled: bool,
     ) -> Result<MiseInfo, String> {
         let local_bin = context.home_dir.join(".local").join("bin");
         fs::create_dir_all(&local_bin).map_err(|err| {
@@ -153,7 +153,7 @@ impl PlatformInstaller for UnixPlatform {
             ("MISE_INSTALL_PATH", install_path_value),
         ];
         let args = vec![script_path.to_string_lossy().to_string()];
-        process::run_command("sh", &args, &extra_env, true).map(|_| ())?;
+        process::run_command("sh", &args, &extra_env, logging_enabled).map(|_| ())?;
 
         let bin_path = local_bin.join("mise");
         if !bin_path.is_file() {

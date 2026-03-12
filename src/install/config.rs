@@ -22,10 +22,11 @@ impl InstallConfig {
     pub fn from_env(
         forwarded_mise_args: Vec<String>,
         minimum_versions: MinimumVersionConfig,
+        logging_enabled: bool,
     ) -> Result<Self, String> {
         Ok(Self {
             activate_profile: read_bool_env("LFP_ENV_ACTIVATE_PROFILE", true)?,
-            logging_enabled: read_bool_env("LFP_ENV_LOGGING_ENABLED", true)?,
+            logging_enabled,
             minimum_versions,
             forwarded_mise_args,
         })

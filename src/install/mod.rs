@@ -14,7 +14,7 @@ use self::mise::MiseInfo;
 use self::platform::{create_platform, InstallContext};
 use crate::cli::CliOptions;
 use crate::requirements;
-use log::info;
+use log::{info, LevelFilter};
 
 /// Installer activation lines that are emitted on stdout for shell eval.
 #[derive(Default)]
@@ -50,8 +50,12 @@ struct InstallState {
 impl InstallState {
     /// Build the full installer state from env and platform detection.
     fn new(options: CliOptions) -> Result<Self, String> {
-        let mut config =
-            InstallConfig::from_env(options.forwarded_args, options.minimum_versions)?;
+        let logging_enabled = options.log_level != LevelFilter::Off;
+        let mut config = InstallConfig::from_env(
+            options.forwarded_args,
+            options.minimum_versions,
+            logging_enabled,
+        )?;
         let platform = create_platform();
         let context = platform.prepare_environment(&mut config)?;
         let mise_info = mise::ensure_available(
@@ -110,7 +114,7 @@ impl InstallState {
         );
         let mut mise_args = vec!["use".to_string(), "-g".to_string()];
         mise_args.extend(self.config.forwarded_mise_args.clone());
-        process::run_command(&mise_bin, &mise_args, &[], true).map(|_| ())
+        process::run_command(&mise_bin, &mise_args, &[], self.config.logging_enabled).map(|_| ())
     }
 
     /// Apply one-time settings immediately after a fresh `mise` install.
@@ -124,7 +128,8 @@ impl InstallState {
             "Enabling mise experimental settings for this new install.",
         );
         let settings_args = ["settings", "experimental=true"];
-        process::run_command(mise_bin, &settings_args, &[], true).map(|_| ())?;
+        process::run_command(mise_bin, &settings_args, &[], self.config.logging_enabled)
+            .map(|_| ())?;
         mise::apply_bash_shims_path(&self.mise_info.bin_path)
     }
 }

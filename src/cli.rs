@@ -116,8 +116,15 @@ fn extract_forwarded_args(trailing_args: Option<TrailingArgs>) -> Vec<String> {
 
 /// Parse a runtime log level string into a `LevelFilter`.
 pub fn parse_level_filter(value: &str) -> Result<LevelFilter, String> {
-    value.trim().parse::<LevelFilter>().map_err(|_| {
-        format!("Invalid log level '{value}'. Expected one of: error,warn,info,debug,trace,off")
+    let normalized = value.trim().to_ascii_lowercase();
+    if normalized == "0" {
+        return Ok(LevelFilter::Off);
+    }
+    if normalized.chars().all(|character| character.is_ascii_digit()) {
+        return Ok(LevelFilter::Info);
+    }
+    normalized.parse::<LevelFilter>().map_err(|_| {
+        format!("Invalid log level '{value}'. Expected one of: 0,error,warn,info,debug,trace,off")
     })
 }
 
@@ -125,9 +132,17 @@ pub fn parse_level_filter(value: &str) -> Result<LevelFilter, String> {
 mod tests {
     use super::{parse_cli_options_from, LevelFilter};
     use std::env;
+    use std::sync::{Mutex, MutexGuard};
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn lock_env() -> MutexGuard<'static, ()> {
+        ENV_LOCK.lock().expect("env test mutex poisoned")
+    }
 
     #[test]
     fn parses_version_flag() {
+        let _lock = lock_env();
         let options = parse_cli_options_from(vec!["lfp-env", "--version"]).unwrap();
         assert!(options.print_version);
         assert_eq!(options.log_level, LevelFilter::Info);
@@ -138,19 +153,36 @@ mod tests {
 
     #[test]
     fn parses_log_level_assignment() {
+        let _lock = lock_env();
         let options = parse_cli_options_from(vec!["lfp-env", "--log-level=debug"]).unwrap();
         assert_eq!(options.log_level, LevelFilter::Debug);
     }
 
     #[test]
     fn parses_log_level_separate_value() {
+        let _lock = lock_env();
         let options =
             parse_cli_options_from(vec!["lfp-env", "--log-level", "trace"]).unwrap();
         assert_eq!(options.log_level, LevelFilter::Trace);
     }
 
     #[test]
+    fn parses_log_level_zero_as_off() {
+        let _lock = lock_env();
+        let options = parse_cli_options_from(vec!["lfp-env", "--log-level", "0"]).unwrap();
+        assert_eq!(options.log_level, LevelFilter::Off);
+    }
+
+    #[test]
+    fn parses_non_zero_numeric_log_level_as_info() {
+        let _lock = lock_env();
+        let options = parse_cli_options_from(vec!["lfp-env", "--log-level", "1"]).unwrap();
+        assert_eq!(options.log_level, LevelFilter::Info);
+    }
+
+    #[test]
     fn forwards_unknown_arguments_to_mise() {
+        let _lock = lock_env();
         let options = parse_cli_options_from(vec![
             "lfp-env",
             "nano@latest",
@@ -165,6 +197,7 @@ mod tests {
 
     #[test]
     fn forwards_arguments_after_double_dash() {
+        let _lock = lock_env();
         let options = parse_cli_options_from(vec![
             "lfp-env",
             "--log-level=warn",
@@ -178,6 +211,7 @@ mod tests {
 
     #[test]
     fn parses_known_flags_before_package_selectors() {
+        let _lock = lock_env();
         let options = parse_cli_options_from(vec![
             "lfp-env",
             "--log-level=debug",
@@ -194,11 +228,14 @@ mod tests {
 
     #[test]
     fn reads_min_versions_from_environment() {
+        let _lock = lock_env();
         let _guard = EnvGuard::set(&[
             ("LFP_ENV_MISE_MIN_VERSION", Some("2024.10.1")),
             ("LFP_ENV_GIT_MIN_VERSION", Some("2.39.0")),
+            ("LFP_ENV_LOG_LEVEL", Some("0")),
         ]);
         let options = parse_cli_options_from(vec!["lfp-env"]).unwrap();
+        assert_eq!(options.log_level, LevelFilter::Off);
         assert_eq!(options.minimum_versions.mise.as_deref(), Some("2024.10.1"));
         assert_eq!(options.minimum_versions.git.as_deref(), Some("2.39.0"));
         assert_eq!(options.minimum_versions.python.as_deref(), Some("3.10"));
@@ -207,6 +244,7 @@ mod tests {
 
     #[test]
     fn parses_min_versions_from_cli_flags() {
+        let _lock = lock_env();
         let options = parse_cli_options_from(vec![
             "lfp-env",
             "--mise-min-version",
