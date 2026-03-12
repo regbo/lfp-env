@@ -194,10 +194,10 @@ On Windows, when `mise` is newly installed, the installer updates:
 
 Useful project tasks:
 
-- `mise run commit`
-- `mise run tag`
-- `mise build --os <os> --arch <arch>`
-- `mise dev --os <os> --arch <arch>`
+- `mise commit`
+- `mise tag`
+- `mise build`
+- `mise dev`
 
 Run the test suite with:
 
