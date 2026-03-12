@@ -7,7 +7,9 @@ MIN_VERSION="${LFP_ENV_MIN_VERSION:-}"
 INSTALL_PATH="${LFP_ENV_INSTALL_PATH:-}"
 
 logging_enabled() {
-    [ "${LFP_ENV_LOG_LEVEL:-}" != "0" ]
+    level="$(printf '%s' "${LFP_ENV_LOG_LEVEL:-}" | tr '[:upper:]' '[:lower:]')"
+    [ -z "$level" ] && return 0
+    [ "$level" = "info" ] || [ "$level" = "debug" ]
 }
 
 log() {

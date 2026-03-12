@@ -10,7 +10,14 @@ $MIN_VERSION = $env:LFP_ENV_MIN_VERSION
 $INSTALL_PATH = $env:LFP_ENV_INSTALL_PATH
 
 function logging_enabled {
-    return $env:LFP_ENV_LOG_LEVEL -ne "0"
+    $level = $env:LFP_ENV_LOG_LEVEL
+    if (-not $level) { return $true }
+
+    switch ($level.Trim().ToLowerInvariant()) {
+        "info" { return $true }
+        "debug" { return $true }
+        default { return $false }
+    }
 }
 
 function log {
