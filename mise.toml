@@ -1,7 +1,7 @@
 [tools]
 rust = "stable"
-uv ="0.9"
-yq  ="4"
+uv = "0.9"
+yq = "4"
 
 [tasks.project-name]
 run = "yq -r '.package.name' Cargo.toml"
@@ -15,8 +15,7 @@ run = "uv run --with-requirements requirements.txt -- python scripts/deploy.py t
 
 [tasks.build]
 run = '''
-mise exec rust -- cargo build \
-  --bin "$(mise project-name)"
+mise exec rust -- cargo build --bin "$(mise project-name)"
 '''
 
 [tasks.dev]

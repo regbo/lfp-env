@@ -65,6 +65,34 @@ $env:LFP_ENV_VERSION = "0.2.6"
 & ([scriptblock]::Create((irm -useb https://raw.githubusercontent.com/regbo/lfp-env/latest/install.ps1))) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { Invoke-Expression $_ }
 ```
 
+## Install Extra Tools
+
+Any extra arguments passed to `install.sh` or `install.ps1` are forwarded as:
+
+```text
+mise use -g ...
+```
+
+You do not need `--` before those tool names.
+
+For example, on macOS/Linux:
+
+```sh
+eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-env/latest/install.sh | sh -s yq@latest jq)"
+```
+
+That behaves like:
+
+```sh
+mise use -g yq@latest jq
+```
+
+On Windows (PowerShell):
+
+```powershell
+& ([scriptblock]::Create((irm -useb https://raw.githubusercontent.com/regbo/lfp-env/latest/install.ps1))) nano@latest jq | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { Invoke-Expression $_ }
+```
+
 ## What It Does
 
 During installation, `lfp-env`:
@@ -106,7 +134,7 @@ mise exec rust -- cargo build --bin lfp-env
 
 `lfp-env --version` prints only the raw semver, for example `0.2.6`.
 
-When the installer wrappers use the internal installer mode, any remaining arguments after `--` are forwarded to `mise` after the default toolchain setup completes.
+Any unrecognized trailing arguments are treated as package selectors and run as `mise use -g ...` after the default toolchain setup completes.
 
 ## Configuration
 

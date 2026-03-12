@@ -1,5 +1,5 @@
 use crate::install::config::MinimumVersionConfig;
-use clap::{ArgAction, Parser};
+use clap::{ArgAction, Parser, Subcommand};
 use log::LevelFilter;
 use std::ffi::OsString;
 
@@ -20,7 +20,7 @@ pub struct CliOptions {
     /// Minimum version checks applied before reusing or installing tools.
     pub minimum_versions: MinimumVersionConfig,
 
-    /// Forward all remaining args to `mise` after installer setup completes.
+    /// Extra package selectors to install with `mise use -g` after setup completes.
     pub forwarded_args: Vec<String>,
 }
 
@@ -65,9 +65,17 @@ struct CliArguments {
     #[arg(long, env = "LFP_ENV_GIT_MIN_VERSION")]
     git_min_version: Option<String>,
 
-    /// Forward all remaining arguments to mise after installer setup.
-    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-    forwarded_args: Vec<String>,
+    /// Extra package selectors to install with `mise use -g`.
+    #[command(subcommand)]
+    trailing_args: Option<TrailingArgs>,
+}
+
+/// Trailing arguments captured after the known installer flags.
+#[derive(Debug, Subcommand, PartialEq, Eq)]
+enum TrailingArgs {
+    /// Treat any unrecognized trailing arguments as `mise use -g` selectors.
+    #[command(external_subcommand)]
+    Args(Vec<OsString>),
 }
 
 /// Parse CLI options from process arguments.
@@ -91,8 +99,19 @@ where
             uv: arguments.uv_min_version,
             git: arguments.git_min_version,
         },
-        forwarded_args: arguments.forwarded_args,
+        forwarded_args: extract_forwarded_args(arguments.trailing_args),
     })
+}
+
+/// Convert clap's external trailing args into plain strings for installer forwarding.
+fn extract_forwarded_args(trailing_args: Option<TrailingArgs>) -> Vec<String> {
+    match trailing_args {
+        Some(TrailingArgs::Args(args)) => args
+            .into_iter()
+            .map(|value| value.to_string_lossy().to_string())
+            .collect(),
+        None => Vec::new(),
+    }
 }
 
 /// Parse a runtime log level string into a `LevelFilter`.
@@ -134,18 +153,13 @@ mod tests {
     fn forwards_unknown_arguments_to_mise() {
         let options = parse_cli_options_from(vec![
             "lfp-env",
-            "use",
-            "-g",
-            "python@latest",
+            "nano@latest",
+            "jq",
         ])
         .unwrap();
         assert_eq!(
             options.forwarded_args,
-            vec![
-                "use".to_string(),
-                "-g".to_string(),
-                "python@latest".to_string()
-            ]
+            vec!["nano@latest".to_string(), "jq".to_string()]
         );
     }
 
@@ -160,6 +174,22 @@ mod tests {
         .unwrap();
         assert_eq!(options.log_level, LevelFilter::Warn);
         assert_eq!(options.forwarded_args, vec!["--version".to_string()]);
+    }
+
+    #[test]
+    fn parses_known_flags_before_package_selectors() {
+        let options = parse_cli_options_from(vec![
+            "lfp-env",
+            "--log-level=debug",
+            "nano@latest",
+            "jq",
+        ])
+        .unwrap();
+        assert_eq!(options.log_level, LevelFilter::Debug);
+        assert_eq!(
+            options.forwarded_args,
+            vec!["nano@latest".to_string(), "jq".to_string()]
+        );
     }
 
     #[test]

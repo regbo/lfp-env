@@ -91,7 +91,7 @@ impl InstallState {
             .update_profiles(&self.config, &self.context, &self.mise_info)
     }
 
-    /// Ensure default tools exist via mise, then forward remaining args to mise directly.
+    /// Ensure default tools exist via mise, then install any requested extra tools.
     fn run_post_install_actions(&self) -> Result<(), String> {
         let mise_bin = self.mise_info.bin_path.to_string_lossy().to_string();
         self.configure_new_mise(&mise_bin)?;
@@ -104,11 +104,13 @@ impl InstallState {
         log_install(
             self.config.logging_enabled,
             &format!(
-                "Forwarding arguments to mise: {}",
+                "Installing extra tools with mise use -g: {}",
                 self.config.forwarded_mise_args.join(" ")
             ),
         );
-        process::run_command(&mise_bin, &self.config.forwarded_mise_args, &[], true).map(|_| ())
+        let mut mise_args = vec!["use".to_string(), "-g".to_string()];
+        mise_args.extend(self.config.forwarded_mise_args.clone());
+        process::run_command(&mise_bin, &mise_args, &[], true).map(|_| ())
     }
 
     /// Apply one-time settings immediately after a fresh `mise` install.

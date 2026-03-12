@@ -135,4 +135,7 @@ if [ "$INSTALL_REQUIRED" -eq 1 ]; then
 fi
 
 export LFP_ENV_INSTALLER_MODE=1
-exec "$LFP_ENV_BIN" "$@"
+if [ "$#" -gt 0 ]; then
+    exec "$LFP_ENV_BIN" "$@"
+fi
+exec "$LFP_ENV_BIN"

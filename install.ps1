@@ -109,7 +109,12 @@ try {
     }
 
     $env:LFP_ENV_INSTALLER_MODE = "1"
-    & $LFP_ENV_BIN @args
+    if ($args.Count -gt 0) {
+        & $LFP_ENV_BIN @args
+    }
+    else {
+        & $LFP_ENV_BIN
+    }
     exit $LASTEXITCODE
 }
 finally {
