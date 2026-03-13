@@ -113,6 +113,19 @@ def _resolve_ref_for_commit() -> str:
     return branch_name
 
 
+def _restore_main_readme_after_tag(owner: str, repo: str, tag: str, push: bool) -> None:
+    """Restore README raw URLs back to latest after tagging on main."""
+    if _detect_branch_name() != "main":
+        return
+    if not _rewrite_readme_raw_urls(owner=owner, repo=repo, ref="latest"):
+        return
+
+    restore_message = f"chore: restore README raw URLs to latest after tagging {tag}"
+    restored = _commit_all_changes(restore_message)
+    if push and restored:
+        _push_commit()
+
+
 def _rewrite_readme_raw_urls(owner: str, repo: str, ref: str) -> bool:
     """Rewrite all init-script raw GitHub URLs in README.md to owner/repo/ref."""
     if not _README_PATH.exists():
@@ -232,6 +245,7 @@ def _run_tag_command(
     push: bool,
 ) -> None:
     owner, repo = _detect_repo_slug()
+    branch_name = _detect_branch_name()
     resolved_tag = tag if tag else _next_tag(major=major, minor=minor)
     resolved_version = _version_from_tag(resolved_tag)
     _LOG.info("Using tag: %s", resolved_tag)
@@ -248,6 +262,10 @@ def _run_tag_command(
         if committed:
             _push_commit()
         _push_tag(resolved_tag)
+
+    # Keep main pinned to latest even though the release tag points at the tag-specific README commit.
+    if branch_name == "main":
+        _restore_main_readme_after_tag(owner=owner, repo=repo, tag=resolved_tag, push=push)
 
 
 def _build_parser() -> argparse.ArgumentParser:
