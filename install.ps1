@@ -10,20 +10,8 @@ $GIT_MIN_VERSION = $env:LFP_ENV_GIT_MIN_VERSION
 $PIXI_INSTALL_URL = "https://pixi.sh/install.ps1"
 $PROFILE_MARKER = "# lfp-env"
 
-function logging_enabled {
-    $level = $env:LFP_ENV_LOG_LEVEL
-    if (-not $level) { return $true }
-
-    switch ($level.Trim().ToLowerInvariant()) {
-        "info" { return $true }
-        "debug" { return $true }
-        default { return $false }
-    }
-}
-
 function log {
     param([string]$msg)
-    if (-not (logging_enabled)) { return }
     [Console]::Error.WriteLine("[lfp-env-install] $msg")
 }
 
@@ -73,12 +61,6 @@ function resolve_pixi_bin_dir {
     return Join-Path $pixiHomeDir "bin"
 }
 
-function resolve_python_bin {
-    $python = Get-Command python -ErrorAction SilentlyContinue
-    if ($python) { return $python.Source }
-    return $null
-}
-
 function extract_version_token {
     param([string]$text)
     # Match the first dotted version token so values like 0.10.9 are preserved.
@@ -97,6 +79,13 @@ function prepend_path {
     $entries = $Env:PATH -split ';'
     if ($entries -contains $pathEntry) { return }
     $Env:PATH = "$pathEntry;$Env:PATH"
+}
+
+function invoke_with_stderr_pipe {
+    param([scriptblock]$Command)
+
+    & $Command 2>&1 | ForEach-Object { [Console]::Error.WriteLine($_) }
+    return $?
 }
 
 function ensure_pixi {
@@ -118,7 +107,6 @@ function ensure_pixi {
 
     log "Installing pixi"
     $pixiInstallScript = Join-Path $TEMP_DIR "pixi-install.ps1"
-    $pixiInstallLog = Join-Path $TEMP_DIR "pixi-install.log"
     log "Downloading $PIXI_INSTALL_URL"
     Invoke-WebRequest -Uri $PIXI_INSTALL_URL -OutFile $pixiInstallScript
 
@@ -127,12 +115,11 @@ function ensure_pixi {
     $env:PIXI_HOME = $pixiHomeDir
     $env:PIXI_BIN_DIR = $pixiBinDir
     try {
-        & $pixiInstallScript *> $pixiInstallLog
+        if (-not (invoke_with_stderr_pipe { & $pixiInstallScript })) {
+            fail "pixi installation failed."
+        }
     }
     catch {
-        if (Test-Path $pixiInstallLog) {
-            Get-Content $pixiInstallLog | ForEach-Object { Write-Error $_ }
-        }
         fail "pixi installation failed."
     }
     finally {
@@ -146,17 +133,16 @@ function ensure_pixi {
     prepend_path $pixiBinDir
 }
 
-# Keep wrapper stdout clean for Invoke-Expression by only showing Pixi output on failure.
+# Keep wrapper stdout clean for Invoke-Expression by sending install output to stderr.
 function run_pixi_global_install {
     param([string[]]$selectors)
-    $installLog = Join-Path $TEMP_DIR "pixi-global-install.log"
+    log "Installing with pixi global install: $($selectors -join ' ')"
     try {
-        & pixi global install @selectors *> $installLog
+        if (-not (invoke_with_stderr_pipe { & pixi global install @selectors })) {
+            fail "pixi global install failed for: $($selectors -join ' ')"
+        }
     }
     catch {
-        if (Test-Path $installLog) {
-            Get-Content $installLog | ForEach-Object { Write-Error $_ }
-        }
         fail "pixi global install failed for: $($selectors -join ' ')"
     }
 }
@@ -204,7 +190,7 @@ function ensure_global_tool {
 function build_activation_command {
     $pixiHomeDir = resolve_pixi_home_dir
     $pixiBinDir = resolve_pixi_bin_dir $pixiHomeDir
-    return "\$PixiBinDir = '$($pixiBinDir.Replace("'", "''"))'; if (-not ((\$Env:PATH -split ';') -contains \$PixiBinDir)) { \$Env:PATH = `"`$PixiBinDir;`$Env:PATH`" }"
+    return "`$PixiBinDir = '$($pixiBinDir.Replace("'", "''"))'; if (-not ((`$Env:PATH -split ';') -contains `$PixiBinDir)) { `$Env:PATH = `"`$PixiBinDir;`$Env:PATH`" }"
 }
 
 function build_profile_line {
@@ -232,9 +218,8 @@ function write_profile_block {
         return
     }
 
-    # Remove older managed block content and any previously tagged single-line entries.
-    $managedBlockPattern = "(?ms)^$([regex]::Escape('# >>> lfp-env >>>'))\r?\n.*?^$([regex]::Escape('# <<< lfp-env <<<'))\r?\n?"
-    $cleanedContent = [regex]::Replace($existingContent, $managedBlockPattern, "")
+    # Remove previously tagged single-line entries before appending the managed activation line.
+    $cleanedContent = $existingContent
     $managedLinePattern = "(?m)^.*$([regex]::Escape($PROFILE_MARKER))\s*$\r?\n?"
     $cleanedContent = [regex]::Replace($cleanedContent, $managedLinePattern, "")
     $cleanedContent = $cleanedContent.TrimEnd([char[]]"`r`n")
@@ -290,11 +275,6 @@ try {
     }
     ensure_pixi
     ensure_global_tool "python" $PYTHON_MIN_VERSION "python"
-    $PYTHON_BIN = resolve_python_bin
-    if (-not $PYTHON_BIN) {
-        fail "python $PYTHON_MIN_VERSION+ is required after pixi setup."
-    }
-    log "Python: $PYTHON_BIN"
     ensure_global_tool "uv" $UV_MIN_VERSION "uv"
     ensure_global_tool "git" $GIT_MIN_VERSION "git"
     update_shell_profiles

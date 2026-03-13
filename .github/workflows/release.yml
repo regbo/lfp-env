@@ -1,4 +1,4 @@
-name: Tag Tests And Release
+name: Tag Tests
 
 on:
   push:
@@ -43,30 +43,3 @@ jobs:
         run: |
           .\tests\test-install.ps1
 
-  release:
-    needs:
-      - unix-tests
-      - windows-tests
-    if: |
-      always() &&
-      needs.unix-tests.result == 'success' &&
-      needs.windows-tests.result == 'success'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Create or update release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          generate_release_notes: true
-
-      - name: Update latest tag to released commit
-        shell: bash
-        run: |
-          set -euo pipefail
-          git tag -f latest "${GITHUB_SHA}"
-          git push origin refs/tags/latest --force

@@ -14,19 +14,19 @@ By default it ensures:
 ### macOS/Linux
 
 ```sh
-eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-env/latest/install.sh | sh)"
+eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-env/main/install.sh | sh)"
 ```
 
 If `curl` is not available, `wget` works too:
 
 ```sh
-eval "$(wget -qO- https://raw.githubusercontent.com/regbo/lfp-env/latest/install.sh | sh)"
+eval "$(wget -qO- https://raw.githubusercontent.com/regbo/lfp-env/main/install.sh | sh)"
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-& ([scriptblock]::Create((irm -useb https://raw.githubusercontent.com/regbo/lfp-env/latest/install.ps1))) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { Invoke-Expression $_ }
+& ([scriptblock]::Create((irm -useb https://raw.githubusercontent.com/regbo/lfp-env/main/install.ps1))) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { Invoke-Expression $_ }
 ```
 
 The bootstrap scripts write status messages to stderr and print non-interactive PATH activation to stdout. They also refresh tagged non-interactive activation lines in profile files so later shells can pick up the same Pixi bin directory setup.
@@ -49,19 +49,19 @@ If the install succeeded, all four commands should work in the current shell.
 On macOS/Linux:
 
 ```sh
-eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-env/latest/install.sh | sh)"
+eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-env/main/install.sh | sh)"
 ```
 
 With `wget`:
 
 ```sh
-eval "$(wget -qO- https://raw.githubusercontent.com/regbo/lfp-env/latest/install.sh | sh)"
+eval "$(wget -qO- https://raw.githubusercontent.com/regbo/lfp-env/main/install.sh | sh)"
 ```
 
 On Windows (PowerShell):
 
 ```powershell
-& ([scriptblock]::Create((irm -useb https://raw.githubusercontent.com/regbo/lfp-env/latest/install.ps1))) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { Invoke-Expression $_ }
+& ([scriptblock]::Create((irm -useb https://raw.githubusercontent.com/regbo/lfp-env/main/install.ps1))) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { Invoke-Expression $_ }
 ```
 
 ## Install Extra Tools
@@ -75,7 +75,7 @@ pixi global install ...
 For example, on macOS/Linux:
 
 ```sh
-eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-env/latest/install.sh | sh -s yq jq)"
+eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-env/main/install.sh | sh -s yq jq)"
 ```
 
 This installs `yq` and `jq`.
@@ -83,7 +83,7 @@ This installs `yq` and `jq`.
 On Windows (PowerShell):
 
 ```powershell
-& ([scriptblock]::Create((irm -useb https://raw.githubusercontent.com/regbo/lfp-env/latest/install.ps1))) yq jq | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { Invoke-Expression $_ }
+& ([scriptblock]::Create((irm -useb https://raw.githubusercontent.com/regbo/lfp-env/main/install.ps1))) yq jq | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { Invoke-Expression $_ }
 ```
 
 ## What It Does
@@ -123,9 +123,6 @@ To test the current checkout through the bootstrap wrapper on Windows:
 
 Bootstrap variables:
 
-- `LFP_ENV_LOG_LEVEL`
-  Default: `info`
-  Controls installer stderr logging. Use `0` to disable it.
 - `LFP_ENV_PYTHON_MIN_VERSION`
   Default: `3.10`
   Controls the minimum Python version enforced by the bootstrap scripts.

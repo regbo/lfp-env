@@ -75,18 +75,6 @@ def _iter_semver_tags(repo: git.Repo) -> Iterable[tuple[str, semver.Version]]:
             yield parsed
 
 
-def _latest_semver_tag_name() -> str | None:
-    """Return the latest semantic version tag name, preferring a v-prefix."""
-    repo = git.Repo(".")
-    semver_tags = list(_iter_semver_tags(repo))
-    if not semver_tags:
-        return None
-    prefix, latest_version = max(semver_tags, key=lambda item: item[1])
-    if not prefix:
-        prefix = "v"
-    return f"{prefix}{latest_version}"
-
-
 def _next_tag(major: bool, minor: bool) -> str:
     """Compute the next tag with patch bump by default."""
     repo = git.Repo(".")
@@ -118,11 +106,8 @@ def _version_from_tag(tag_name: str) -> str:
 
 
 def _resolve_ref_for_commit() -> str:
-    """Use latest alias on main, otherwise use current branch."""
-    branch = _detect_branch_name()
-    if branch != "main":
-        return branch
-    return "latest"
+    """Use the current branch name when rewriting README raw URLs."""
+    return _detect_branch_name()
 
 
 def _rewrite_readme_raw_urls(owner: str, repo: str, ref: str) -> bool:
@@ -246,13 +231,12 @@ def _run_tag_command(
     owner, repo = _detect_repo_slug()
     resolved_tag = tag if tag else _next_tag(major=major, minor=minor)
     resolved_version = _version_from_tag(resolved_tag)
-    ref = _resolve_ref_for_commit()
     _LOG.info("Using tag: %s", resolved_tag)
-    _rewrite_readme_raw_urls(owner=owner, repo=repo, ref=ref)
+    _rewrite_readme_raw_urls(owner=owner, repo=repo, ref=resolved_tag)
     _rewrite_pyproject_version(resolved_version)
     resolved = _resolve_message(
         user_message=message,
-        default_message=f"chore: sync README raw URLs to {owner}/{repo}/{ref}",
+        default_message=f"chore: sync README raw URLs to {owner}/{repo}/{resolved_tag}",
     )
     committed = _commit_all_changes(resolved)
     _create_tag(resolved_tag)

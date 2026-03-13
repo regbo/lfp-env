@@ -4,4 +4,4 @@ docker run -it --rm \
   debian:stable-slim \
   -c 'apt-get update && apt-get install -y curl && exec /bin/sh'
 
-# LFP_ENV_LOG_LEVEL=debug && eval "$(sh /lfp-env/install.sh)"
+# eval "$(sh /lfp-env/install.sh)"

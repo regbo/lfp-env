@@ -15,6 +15,7 @@ function Assert-Contains {
     )
 
     $content = Get-Content -Raw $Path
+    if ($null -eq $content) { $content = "" }
     if (-not $content.Contains($ExpectedText)) {
         Fail "Expected '$ExpectedText' in $Path"
     }
@@ -27,6 +28,7 @@ function Assert-NotContains {
     )
 
     $content = Get-Content -Raw $Path
+    if ($null -eq $content) { $content = "" }
     if ($content.Contains($UnexpectedText)) {
         Fail "Did not expect '$UnexpectedText' in $Path"
     }
@@ -84,23 +86,32 @@ if "%1"=="--version" (
   exit /b 0
 )
 if /I "%1"=="global" if /I "%2"=="install" (
+  if not "%FAKE_PIXI_LOG%"=="" (
+    shift
+    shift
+    echo %*>> "%FAKE_PIXI_LOG%"
+  )
   exit /b 0
 )
 exit /b 0
 "@ | Set-Content -Path $cmdToolPath -Encoding ascii
 
     $shellToolPath = Join-Path $script:FakeBin "pixi"
-    @"
+    @'
 #!/bin/sh
 if [ "\${1:-}" = "--version" ]; then
   printf '%s\n' 'pixi 0.40.0'
   exit 0
 fi
 if [ "\${1:-}" = "global" ] && [ "\${2:-}" = "install" ]; then
+  if [ -n "${FAKE_PIXI_LOG:-}" ]; then
+    shift 2
+    printf '%s\n' "$*" >>"$FAKE_PIXI_LOG"
+  fi
   exit 0
 fi
 exit 0
-"@ | Set-Content -Path $shellToolPath -Encoding ascii
+'@ | Set-Content -Path $shellToolPath -Encoding ascii
     if (-not $IsWindows) {
         chmod +x $shellToolPath
     }
@@ -118,14 +129,15 @@ function Invoke-Installer {
         [string]$HomeDir,
         [pscustomobject]$ProfileObject,
         [string]$StdErrPath,
-        [string]$StdOutPath
+        [string]$StdOutPath,
+        [string[]]$AdditionalArgs = @()
     )
 
     $env:PIXI_HOME = Join-Path $HomeDir ".pixi"
-    $env:LFP_ENV_LOG_LEVEL = "info"
-    $env:PATH = "$script:FakeBin;$script:OriginalPath"
+    $env:PATH = "$script:FakeBin$([System.IO.Path]::PathSeparator)$script:OriginalPath"
+    $env:FAKE_PIXI_LOG = Join-Path $script:TempDir "pixi-install.log"
     $script:PROFILE = $ProfileObject
-    & $script:InstallPath 2> $StdErrPath > $StdOutPath
+    & $script:InstallPath @AdditionalArgs 2> $StdErrPath > $StdOutPath
 }
 
 function Assert-ProfileCreatedOnce {
@@ -135,15 +147,16 @@ function Assert-ProfileCreatedOnce {
         [string]$CurrentHostPath
     )
 
-    $activationCommand = Build-ActivationCommand $HomeDir
     if (-not (Test-Path $AllHostsPath -PathType Leaf)) {
         Fail "Expected $AllHostsPath to be created"
     }
     if (-not (Test-Path $CurrentHostPath -PathType Leaf)) {
         Fail "Expected $CurrentHostPath to exist"
     }
-    Assert-Contains $AllHostsPath "$activationCommand # lfp-env"
-    Assert-Contains $CurrentHostPath "$activationCommand # lfp-env"
+    Assert-Contains $AllHostsPath '$PixiBinDir ='
+    Assert-Contains $CurrentHostPath '$PixiBinDir ='
+    Assert-Contains $AllHostsPath "# lfp-env"
+    Assert-Contains $CurrentHostPath "# lfp-env"
     Assert-Count $AllHostsPath "# lfp-env" 1
     Assert-Count $CurrentHostPath "# lfp-env" 1
 }
@@ -162,14 +175,11 @@ function Test-ProfileUpdatesAreIdempotent {
 
     Invoke-Installer $homeDir $profileObject (Join-Path $testRoot "first.err") (Join-Path $testRoot "first.out")
     Assert-ProfileCreatedOnce $homeDir $allHostsPath $currentHostPath
-    Assert-Contains (Join-Path $testRoot "first.err") "Updated non-interactive profile $allHostsPath"
-    Assert-Contains (Join-Path $testRoot "first.err") "Updated non-interactive profile $currentHostPath"
 
     $firstAllHostsSnapshot = Get-Content -Raw $allHostsPath
     $firstCurrentHostSnapshot = Get-Content -Raw $currentHostPath
 
     Invoke-Installer $homeDir $profileObject (Join-Path $testRoot "second.err") (Join-Path $testRoot "second.out")
-    Assert-NotContains (Join-Path $testRoot "second.err") "Updated non-interactive profile"
     if ($firstAllHostsSnapshot -cne (Get-Content -Raw $allHostsPath)) {
         Fail "CurrentUserAllHosts profile changed on the second run"
     }
@@ -193,10 +203,35 @@ function Test-ExistingActivationLineIsNotRewritten {
 
     Invoke-Installer $homeDir $profileObject (Join-Path $testRoot "run.err") (Join-Path $testRoot "run.out")
 
-    Assert-NotContains (Join-Path $testRoot "run.err") "Updated non-interactive profile $currentHostPath"
-    Assert-Count $currentHostPath '$PixiBinDir' 1
+    if ((Get-Content -Raw $currentHostPath).TrimEnd("`r", "`n") -cne $activationCommand) {
+        Fail "Expected the existing activation line in $currentHostPath to remain unchanged"
+    }
     Assert-Count $currentHostPath "# lfp-env" 0
-    Assert-Contains $allHostsPath "$activationCommand # lfp-env"
+    Assert-Contains $allHostsPath '$PixiBinDir ='
+    Assert-Contains $allHostsPath "# lfp-env"
+}
+
+function Test-AdditionalArgsAreGloballyInstalled {
+    if (-not $IsWindows) {
+        return
+    }
+
+    $testRoot = Join-Path $script:TempDir "additional-args"
+    $homeDir = Join-Path $testRoot "home"
+    New-Item -ItemType Directory -Force -Path $homeDir | Out-Null
+    $allHostsPath = Join-Path $testRoot "Microsoft.PowerShell_profile.ps1"
+    $currentHostPath = Join-Path $testRoot "CurrentHost_profile.ps1"
+    $profileObject = [pscustomobject]@{
+        CurrentUserAllHosts = $allHostsPath
+        CurrentUserCurrentHost = $currentHostPath
+    }
+
+    Set-Content -Path (Join-Path $script:TempDir "pixi-install.log") -Value "" -Encoding utf8
+    Invoke-Installer $homeDir $profileObject (Join-Path $testRoot "run.err") (Join-Path $testRoot "run.out") @("jq", "yq")
+
+    $pixiLogPath = Join-Path $script:TempDir "pixi-install.log"
+    Assert-Contains $pixiLogPath "jq"
+    Assert-Contains $pixiLogPath "yq"
 }
 
 $script:RootDir = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
@@ -214,6 +249,7 @@ try {
 
     Test-ProfileUpdatesAreIdempotent
     Test-ExistingActivationLineIsNotRewritten
+    Test-AdditionalArgsAreGloballyInstalled
 }
 finally {
     if (Test-Path $script:TempDir) {

@@ -63,6 +63,10 @@ if [ "${1:-}" = "--version" ]; then
     exit 0
 fi
 if [ "${1:-}" = "global" ] && [ "${2:-}" = "install" ]; then
+    if [ -n "${FAKE_PIXI_LOG:-}" ]; then
+        shift 2
+        printf '%s\n' "$*" >>"$FAKE_PIXI_LOG"
+    fi
     exit 0
 fi
 exit 0
@@ -74,11 +78,12 @@ run_install() {
     home_dir="$1"
     stderr_path="$2"
     stdout_path="$3"
+    shift 3
     PATH="$FAKE_BIN:$ORIGINAL_PATH" \
     HOME="$home_dir" \
     PIXI_HOME="$home_dir/.pixi" \
-    LFP_ENV_LOG_LEVEL=info \
-    sh "$ROOT_DIR/install.sh" >"$stdout_path" 2>"$stderr_path"
+    FAKE_PIXI_LOG="$TEMP_DIR/pixi-install.log" \
+    sh "$ROOT_DIR/install.sh" "$@" >"$stdout_path" 2>"$stderr_path"
 }
 
 build_activation_command() {
@@ -136,6 +141,17 @@ test_existing_activation_line_is_not_rewritten() {
     assert_contains "$home_dir/.profile" "$activation_command # lfp-env"
 }
 
+test_additional_args_are_globally_installed() {
+    test_root="$TEMP_DIR/additional-args"
+    home_dir="$test_root/home"
+    mkdir -p "$home_dir"
+    : >"$TEMP_DIR/pixi-install.log"
+
+    run_install "$home_dir" "$test_root/run.err" "$test_root/run.out" jq yq
+
+    assert_contains "$TEMP_DIR/pixi-install.log" "jq yq"
+}
+
 ORIGINAL_PATH="${PATH:-}"
 FAKE_BIN="$TEMP_DIR/fake-bin"
 mkdir -p "$FAKE_BIN"
@@ -146,3 +162,4 @@ create_version_tool git "git version 2.50.1"
 
 test_profile_updates_are_idempotent
 test_existing_activation_line_is_not_rewritten
+test_additional_args_are_globally_installed

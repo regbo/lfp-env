@@ -7,16 +7,7 @@ GIT_MIN_VERSION="${LFP_ENV_GIT_MIN_VERSION:-}"
 PIXI_INSTALL_URL="https://pixi.sh/install.sh"
 PROFILE_MARKER="# lfp-env"
 
-logging_enabled() {
-    level="$(printf '%s' "${LFP_ENV_LOG_LEVEL:-}" | tr '[:upper:]' '[:lower:]')"
-    [ -z "$level" ] && return 0
-    [ "$level" = "info" ] || [ "$level" = "debug" ]
-}
-
 log() {
-    if ! logging_enabled; then
-        return 0
-    fi
     printf "%s %s\n" "[lfp-env-install]" "$*" >&2
 }
 
@@ -87,14 +78,6 @@ download_file() {
     exit 1
 }
 
-resolve_python_bin() {
-    if command -v python >/dev/null 2>&1; then
-        command -v python
-        return 0
-    fi
-    return 1
-}
-
 prepend_path() {
     path_entry="$1"
     case ":${PATH:-}:" in
@@ -128,26 +111,19 @@ ensure_pixi() {
 
     log "Installing pixi"
     pixi_install_script="$TEMP_DIR/pixi-install.sh"
-    pixi_install_log="$TEMP_DIR/pixi-install.log"
     download_file "$PIXI_INSTALL_URL" "$pixi_install_script"
     chmod +x "$pixi_install_script"
-    if ! PIXI_HOME="$pixi_home_dir" PIXI_BIN_DIR="$pixi_bin_dir" sh "$pixi_install_script" >"$pixi_install_log" 2>&1; then
-        while IFS= read -r line; do
-            printf "%s\n" "$line" >&2
-        done < "$pixi_install_log"
+    if ! PIXI_HOME="$pixi_home_dir" PIXI_BIN_DIR="$pixi_bin_dir" sh "$pixi_install_script" >&2; then
         error "pixi installation failed."
     fi
     [ -x "$pixi_bin" ] || error "pixi installation did not create $pixi_bin."
     prepend_path "$pixi_bin_dir"
 }
 
-# Keep wrapper stdout clean for eval by only replaying Pixi output on failure.
+# Keep wrapper stdout clean for eval by sending install output to stderr.
 run_pixi_global_install() {
-    install_log="$TEMP_DIR/pixi-global-install.log"
-    if ! pixi global install "$@" >"$install_log" 2>&1; then
-        while IFS= read -r line; do
-            printf "%s\n" "$line" >&2
-        done < "$install_log"
+    log "Installing with pixi global install: $*"
+    if ! pixi global install "$@" >&2; then
         error "pixi global install failed for: $*"
     fi
 }
@@ -170,7 +146,7 @@ ensure_global_tool() {
         fi
     fi
 
-    log "Installing '$tool_name' with pixi global install $pixi_selector"
+    
     run_pixi_global_install "$pixi_selector"
 
     reported_output="$("$tool_name" --version 2>&1 || true)"
@@ -221,10 +197,8 @@ write_profile_block() {
             return 0
         fi
         awk -v marker="$PROFILE_MARKER" '
-            $0 == "# >>> lfp-env >>>" { skip = 1; next }
-            $0 == "# <<< lfp-env <<<" { skip = 0; next }
             index($0, marker) > 0 { next }
-            skip != 1 { print }
+            { print }
         ' "$profile_path" >"$cleaned_path"
     else
         : >"$cleaned_path"
@@ -277,9 +251,6 @@ trap cleanup EXIT HUP INT TERM
 TEMP_DIR="${TEMP_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/lfp-env-install.XXXXXX")}"
 ensure_pixi
 ensure_global_tool "python" "$PYTHON_MIN_VERSION" "python"
-PYTHON_BIN="$(resolve_python_bin || true)"
-[ -n "$PYTHON_BIN" ] || error "python ${PYTHON_MIN_VERSION}+ is required after pixi setup."
-log "Python: $PYTHON_BIN"
 ensure_global_tool "uv" "$UV_MIN_VERSION" "uv"
 ensure_global_tool "git" "$GIT_MIN_VERSION" "git"
 update_shell_profiles
