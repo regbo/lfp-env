@@ -8,6 +8,7 @@ PIXI_INSTALL_URL="https://pixi.sh/install.sh"
 PROFILE_MARKER="# lfp-env"
 TOOL_REPORTED_OUTPUT=""
 TOOL_REPORTED_VERSION=""
+GENERATED_HOME=""
 
 # Write routine installer activity to stderr.
 log() {
@@ -26,14 +27,33 @@ is_exec() {
     [ -n "$file_path" ] && [ -f "$file_path" ] && [ -x "$file_path" ]
 }
 
-# Resolve HOME, falling back to a local sandbox for bare environments.
+# Create a directory and confirm the installer can write to it.
+ensure_writable_dir() {
+    dir_path="$1"
+    test_file=""
+    mkdir -p "$dir_path" 2>/dev/null || return 1
+    test_file="$dir_path/.lfp-env-write-test.$$"
+    : >"$test_file" 2>/dev/null || return 1
+    rm -f "$test_file"
+}
+
+# Resolve HOME, falling back to generated writable directories for bare environments.
 resolve_home_dir() {
     if [ -n "${HOME:-}" ]; then
+        GENERATED_HOME=""
         printf "%s\n" "$HOME"
         return 0
     fi
-    mkdir -p "./home"
-    printf "%s\n" "$(pwd)/home"
+
+    for candidate_dir in "/home" "/home/app" "$(pwd)/home"; do
+        if ensure_writable_dir "$candidate_dir"; then
+            GENERATED_HOME="$candidate_dir"
+            printf "%s\n" "$candidate_dir"
+            return 0
+        fi
+    done
+
+    fail "could not resolve a writable HOME directory."
 }
 
 # Resolve the Pixi home directory, honoring PIXI_HOME.
@@ -198,6 +218,11 @@ build_activation_command() {
     pixi_home_dir="$(resolve_pixi_home_dir)"
     pixi_bin_dir="$(resolve_pixi_bin_dir "$pixi_home_dir")"
     quoted_bin_dir="$(shell_quote "$pixi_bin_dir")"
+    if [ -n "$GENERATED_HOME" ]; then
+        quoted_home_dir="$(shell_quote "$GENERATED_HOME")"
+        printf 'HOME=%s;export HOME;PIXI_BIN_DIR=%s;case ":$PATH:" in *":$PIXI_BIN_DIR:"*) ;; *) export PATH="$PIXI_BIN_DIR:$PATH";; esac;hash -r 2>/dev/null || true' "$quoted_home_dir" "$quoted_bin_dir"
+        return 0
+    fi
     printf 'PIXI_BIN_DIR=%s;case ":$PATH:" in *":$PIXI_BIN_DIR:"*) ;; *) export PATH="$PIXI_BIN_DIR:$PATH";; esac;hash -r 2>/dev/null || true' "$quoted_bin_dir"
 }
 
