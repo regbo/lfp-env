@@ -42,11 +42,8 @@ ensure_writable_dir() {
 
 # Resolve HOME setup, falling back to generated writable directories for bare environments.
 resolve_home_setup() {
-    if [ -n "$(printenv HOME 2>/dev/null || true)" ]; then
-        return 1
-    fi
 
-    for candidate_dir in "/home" "/home/app" "$(pwd)/home"; do
+    for candidate_dir in "${HOME}" "/home" "/home/app" "$(pwd)/home"; do
         if ensure_writable_dir "$candidate_dir"; then
             quoted_home_dir="$(shell_quote "$candidate_dir")"
             home_setup_command="HOME=$quoted_home_dir;export HOME"
