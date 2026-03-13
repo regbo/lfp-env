@@ -1,6 +1,6 @@
 [project]
 name = "lfp-env"
-version = "1.0.4"
+version = "0.0.1"
 description = "Pixi bootstrap scripts for local environment setup."
 requires-python = ">=3.10,<3.14"
 

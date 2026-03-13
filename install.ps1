@@ -309,7 +309,6 @@ try {
         run_pixi_global_install $args
     }
     print_activation
-    exit 0
 }
 finally {
     cleanup

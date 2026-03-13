@@ -234,6 +234,34 @@ function Test-AdditionalArgsAreGloballyInstalled {
     Assert-Contains $pixiLogPath "yq"
 }
 
+# Verify Invoke-Expression usage does not terminate the host session.
+function Test-InvokeExpressionDoesNotExitHost {
+    $testRoot = Join-Path $script:TempDir "invoke-expression"
+    $homeDir = Join-Path $testRoot "home"
+    New-Item -ItemType Directory -Force -Path $homeDir | Out-Null
+    $allHostsPath = Join-Path $testRoot "Microsoft.PowerShell_profile.ps1"
+    $currentHostPath = Join-Path $testRoot "CurrentHost_profile.ps1"
+    $childStdOutPath = Join-Path $testRoot "child.out"
+    $childStdErrPath = Join-Path $testRoot "child.err"
+    $profileObjectLiteral = "@{ CurrentUserAllHosts = '$($allHostsPath.Replace("'", "''"))'; CurrentUserCurrentHost = '$($currentHostPath.Replace("'", "''"))' }"
+    $childCommand = @"
+`$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+`$env:PIXI_HOME = '$($homeDir.Replace("'", "''"))/.pixi'
+`$env:PATH = '$($script:FakeBin.Replace("'", "''"))$([System.IO.Path]::PathSeparator)$($script:OriginalPath.Replace("'", "''"))'
+`$env:FAKE_PIXI_LOG = '$((Join-Path $script:TempDir "pixi-install.log").Replace("'", "''"))'
+`$PROFILE = [pscustomobject]$profileObjectLiteral
+& ([scriptblock]::Create((Get-Content -Raw '$($script:InstallPath.Replace("'", "''"))'))) 2> '$($childStdErrPath.Replace("'", "''"))' > '$($childStdOutPath.Replace("'", "''"))'
+Write-Output 'host-still-running'
+"@
+
+    $childOutput = & pwsh -NoProfile -Command $childCommand
+    if ($childOutput -notcontains "host-still-running") {
+        Fail "Expected Invoke-Expression execution to leave the PowerShell host running"
+    }
+    Assert-Contains $childStdOutPath '$PixiBinDir ='
+}
+
 $script:RootDir = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
 $script:InstallPath = Join-Path $script:RootDir "install.ps1"
 $script:TempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("lfp-env-test-" + [guid]::NewGuid())
@@ -250,6 +278,7 @@ try {
     Test-ProfileUpdatesAreIdempotent
     Test-ExistingActivationLineIsNotRewritten
     Test-AdditionalArgsAreGloballyInstalled
+    Test-InvokeExpressionDoesNotExitHost
 }
 finally {
     if (Test-Path $script:TempDir) {
