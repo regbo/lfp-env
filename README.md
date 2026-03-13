@@ -48,7 +48,19 @@ If the install succeeded, all four commands should work in the current shell.
 
 The `main` branch README always points at `latest`.
 
-When you view this README from a release tag, the install URLs in that tagged README are rewritten to that exact tag so the commands stay pinned to the version you are viewing.
+If you want to install a specific version, replace `latest` in the command with the tag you want, for example `v1.0.7`.
+
+Example on macOS/Linux:
+
+```sh
+eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-env/v1.0.7/install.sh | sh)"
+```
+
+Example on Windows (PowerShell):
+
+```powershell
+& ([scriptblock]::Create((irm -useb https://raw.githubusercontent.com/regbo/lfp-env/v1.0.7/install.ps1))) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { Invoke-Expression $_ }
+```
 
 ## Install Extra Tools
 

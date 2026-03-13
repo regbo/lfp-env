@@ -9,17 +9,14 @@ import git
 import semver
 
 # Deployment helper for commit/tag automation:
-# - Resolves owner/repo from git remote origin
-# - Normalizes raw.githubusercontent.com README URLs to branch or tag refs
-# - Commits and optionally pushes with sensible defaults
+# - Bumps project version during tagging
+# - Refreshes README example tag snippets during tagging
+# - Creates commits and git tags with sensible defaults
 
 _LOG = logging.getLogger("deploy")
 _README_PATH = pathlib.Path("README.md")
 _PYPROJECT_PATH = pathlib.Path("pyproject.toml")
-_URL_PATTERN = re.compile(
-    r"https://raw\.githubusercontent\.com/[^/\s]+/[^/\s]+/[^/\s]+/install\.(sh|ps1)"
-)
-_REPO_PATTERN = re.compile(r"(?:[:/])(?P<owner>[^/:]+)/(?P<repo>[^/]+?)(?:\.git)?$")
+_README_EXAMPLE_TAG_PATTERN = re.compile(r"v\d+\.\d+\.\d+")
 _SEMVER_TAG_PATTERN = re.compile(r"^(?P<prefix>v?)(?P<version>\d+\.\d+\.\d+)$")
 _PYPROJECT_VERSION_PATTERN = re.compile(r'^(version\s*=\s*")(?P<version>\d+\.\d+\.\d+)(")\s*$')
 
@@ -34,27 +31,6 @@ def _parse_bool(value: str) -> bool:
     raise argparse.ArgumentTypeError(
         f"Invalid boolean value '{value}'. Use true/false."
     )
-
-
-def _detect_repo_slug() -> tuple[str, str]:
-    """Detect the repository owner/name from remote.origin.url."""
-    repo = git.Repo(".")
-    remote_url = repo.remotes.origin.url
-    match = _REPO_PATTERN.search(remote_url)
-    if not match:
-        raise RuntimeError(f"Unable to parse owner/repo from remote URL: {remote_url}")
-    owner = match.group("owner")
-    repo = match.group("repo")
-    return owner, repo
-
-
-def _detect_branch_name() -> str:
-    """Detect the current branch name; fallback to main for detached HEAD."""
-    repo = git.Repo(".")
-    if repo.head.is_detached:
-        _LOG.warning("Detached HEAD detected. Falling back to 'main' for README URLs.")
-        return "main"
-    return repo.active_branch.name
 
 
 def _parse_semver_tag(tag_name: str) -> tuple[str, semver.Version] | None:
@@ -105,51 +81,6 @@ def _version_from_tag(tag_name: str) -> str:
     return str(version)
 
 
-def _resolve_ref_for_commit() -> str:
-    """Use latest on main, otherwise keep the current branch name."""
-    branch_name = _detect_branch_name()
-    if branch_name == "main":
-        return "latest"
-    return branch_name
-
-
-def _restore_main_readme_after_tag(owner: str, repo: str, tag: str, push: bool) -> None:
-    """Restore README raw URLs back to latest after tagging on main."""
-    if _detect_branch_name() != "main":
-        return
-    if not _rewrite_readme_raw_urls(owner=owner, repo=repo, ref="latest"):
-        return
-
-    restore_message = f"chore: restore README raw URLs to latest after tagging {tag}"
-    restored = _commit_all_changes(restore_message)
-    if push and restored:
-        _push_commit()
-
-
-def _rewrite_readme_raw_urls(owner: str, repo: str, ref: str) -> bool:
-    """Rewrite all init-script raw GitHub URLs in README.md to owner/repo/ref."""
-    if not _README_PATH.exists():
-        raise FileNotFoundError("README.md not found in repository root.")
-
-    content = _README_PATH.read_text(encoding="utf-8")
-
-    def _replacement(match: re.Match[str]) -> str:
-        extension = match.group(1)
-        return (
-            f"https://raw.githubusercontent.com/{owner}/{repo}/{ref}/"
-            f"install.{extension}"
-        )
-
-    updated = _URL_PATTERN.sub(_replacement, content)
-    if updated == content:
-        _LOG.info("README URLs already point to %s/%s at ref '%s'.", owner, repo, ref)
-        return False
-
-    _README_PATH.write_text(updated, encoding="utf-8")
-    _LOG.info("Updated README raw URLs to %s/%s at ref '%s'.", owner, repo, ref)
-    return True
-
-
 def _rewrite_pyproject_version(version: str) -> bool:
     """Update pyproject.toml project.version to match the resolved release tag."""
     if not _PYPROJECT_PATH.exists():
@@ -181,6 +112,22 @@ def _rewrite_pyproject_version(version: str) -> bool:
 
     _PYPROJECT_PATH.write_text("\n".join(updated_lines) + "\n", encoding="utf-8")
     _LOG.info("Updated pyproject.toml version to %s.", version)
+    return True
+
+
+def _rewrite_readme_example_version(tag: str) -> bool:
+    """Update README example version snippets without changing latest install URLs."""
+    if not _README_PATH.exists():
+        raise FileNotFoundError("README.md not found in repository root.")
+
+    content = _README_PATH.read_text(encoding="utf-8")
+    updated = _README_EXAMPLE_TAG_PATTERN.sub(tag, content)
+    if updated == content:
+        _LOG.info("README example version already set to %s.", tag)
+        return False
+
+    _README_PATH.write_text(updated, encoding="utf-8")
+    _LOG.info("Updated README example version to %s.", tag)
     return True
 
 
@@ -225,12 +172,9 @@ def _resolve_message(user_message: str, default_message: str) -> str:
 
 
 def _run_commit_command(message: str, push: bool) -> None:
-    owner, repo = _detect_repo_slug()
-    ref = _resolve_ref_for_commit()
-    _rewrite_readme_raw_urls(owner=owner, repo=repo, ref=ref)
     resolved = _resolve_message(
         user_message=message,
-        default_message=f"chore: sync README raw URLs to {owner}/{repo}/{ref}",
+        default_message="chore: commit repository changes",
     )
     committed = _commit_all_changes(resolved)
     if push and committed:
@@ -244,16 +188,14 @@ def _run_tag_command(
     message: str,
     push: bool,
 ) -> None:
-    owner, repo = _detect_repo_slug()
-    branch_name = _detect_branch_name()
     resolved_tag = tag if tag else _next_tag(major=major, minor=minor)
     resolved_version = _version_from_tag(resolved_tag)
     _LOG.info("Using tag: %s", resolved_tag)
-    _rewrite_readme_raw_urls(owner=owner, repo=repo, ref=resolved_tag)
+    _rewrite_readme_example_version(resolved_tag)
     _rewrite_pyproject_version(resolved_version)
     resolved = _resolve_message(
         user_message=message,
-        default_message=f"chore: sync README raw URLs to {owner}/{repo}/{resolved_tag}",
+        default_message=f"chore: release {resolved_tag}",
     )
     committed = _commit_all_changes(resolved)
     _create_tag(resolved_tag)
@@ -263,23 +205,18 @@ def _run_tag_command(
             _push_commit()
         _push_tag(resolved_tag)
 
-    # Keep main pinned to latest even though the release tag points at the tag-specific README commit.
-    if branch_name == "main":
-        _restore_main_readme_after_tag(owner=owner, repo=repo, tag=resolved_tag, push=push)
-
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Commit and tag helper that normalizes README raw GitHub URLs "
-            "for install scripts."
+            "Commit and tag helper for release automation."
         )
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     commit_parser = subparsers.add_parser(
         "commit",
-        help="Rewrite README URLs to latest tag on main, else current branch.",
+        help="Commit repository changes.",
     )
     commit_parser.add_argument(
         "--message",
@@ -296,7 +233,7 @@ def _build_parser() -> argparse.ArgumentParser:
     tag_parser = subparsers.add_parser(
         "tag",
         help=(
-            "Rewrite README URLs to a tag ref, commit, create tag, and optionally push. "
+            "Update pyproject version and README example tag, commit, create tag, and optionally push. "
             "Defaults to patch bump when --tag is not supplied."
         ),
     )
