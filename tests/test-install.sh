@@ -126,13 +126,12 @@ build_activation_command() {
 
 build_generated_home_activation_command() {
     home_dir="$1"
-    pixi_bin_dir="$home_dir/.pixi/bin"
-    printf 'HOME=%s;export HOME;PIXI_BIN_DIR=%s;case ":$PATH:" in *":$PIXI_BIN_DIR:"*) ;; *) export PATH="$PIXI_BIN_DIR:$PATH";; esac;hash -r 2>/dev/null || true' "'$home_dir'" "'$pixi_bin_dir'"
+    printf 'HOME=%s;export HOME' "'$home_dir'"
 }
 
 extract_generated_home_dir() {
     file_path="$1"
-    sed -n "s/^HOME='\([^']*\)';export HOME;.*/\1/p" "$file_path"
+    sed -n "s/^HOME='\([^']*\)';export HOME$/\1/p" "$file_path"
 }
 
 assert_profile_created_once() {
@@ -205,9 +204,11 @@ test_generated_home_is_exported() {
 
     generated_home_dir="$(extract_generated_home_dir "$test_root/run.out")"
     [ -n "$generated_home_dir" ] || fail "Expected generated HOME to be exported in activation output"
-    activation_command="$(build_generated_home_activation_command "$generated_home_dir")"
-    assert_contains "$test_root/run.out" "$activation_command"
-    assert_contains "$generated_home_dir/.profile" "$activation_command # lfp-env"
+    home_export_command="$(build_generated_home_activation_command "$generated_home_dir")"
+    pixi_activation_command="$(build_activation_command "$generated_home_dir")"
+    assert_contains "$test_root/run.out" "$home_export_command"
+    assert_contains "$test_root/run.out" "$pixi_activation_command"
+    [ ! -e "$generated_home_dir/.profile" ] || fail "Did not expect profile writes when HOME was generated"
 }
 
 test_shell_only_home_is_ignored() {

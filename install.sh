@@ -6,10 +6,7 @@ UV_MIN_VERSION="${LFP_ENV_UV_MIN_VERSION:-0.9.9}"
 GIT_MIN_VERSION="${LFP_ENV_GIT_MIN_VERSION:-}"
 PIXI_INSTALL_URL="https://pixi.sh/install.sh"
 PROFILE_MARKER="# lfp-env"
-TOOL_REPORTED_OUTPUT=""
-TOOL_REPORTED_VERSION=""
-EXPORTED_HOME=""
-GENERATED_HOME=""
+HOME_WAS_GENERATED=0
 
 # Write routine installer activity to stderr.
 log() {
@@ -28,6 +25,11 @@ is_exec() {
     [ -n "$file_path" ] && [ -f "$file_path" ] && [ -x "$file_path" ]
 }
 
+# Quote shell values safely before embedding them in activation output.
+shell_quote() {
+    printf "'%s'" "$(printf "%s" "$1" | sed "s/'/'\\\\''/g")"
+}
+
 # Create a directory and confirm the installer can write to it.
 ensure_writable_dir() {
     dir_path="$1"
@@ -38,18 +40,19 @@ ensure_writable_dir() {
     rm -f "$test_file"
 }
 
-# Resolve HOME, falling back to generated writable directories for bare environments.
-resolve_home_dir() {
-    if [ -n "$EXPORTED_HOME" ]; then
-        HOME="$EXPORTED_HOME"
-        GENERATED_HOME=""
-        return 0
+# Resolve HOME setup, falling back to generated writable directories for bare environments.
+resolve_home_setup() {
+    if [ -n "$(printenv HOME 2>/dev/null || true)" ]; then
+        return 1
     fi
 
     for candidate_dir in "/home" "/home/app" "$(pwd)/home"; do
         if ensure_writable_dir "$candidate_dir"; then
-            HOME="$candidate_dir"
-            GENERATED_HOME="$candidate_dir"
+            quoted_home_dir="$(shell_quote "$candidate_dir")"
+            home_setup_command="HOME=$quoted_home_dir;export HOME"
+            eval "$home_setup_command"
+            HOME_WAS_GENERATED=1
+            printf '%s\n' "$home_setup_command"
             return 0
         fi
     done
@@ -130,17 +133,15 @@ extract_version_token() {
     printf "%s\n" "$1" | awk 'match($0, /[0-9]+(\.[0-9]+)+/) { print substr($0, RSTART, RLENGTH); exit }'
 }
 
-# Inspect a tool once and cache its raw output plus parsed version in globals.
+# Inspect a tool once and print its raw version output.
 inspect_tool() {
     tool_name="$1"
-    TOOL_REPORTED_OUTPUT=""
-    TOOL_REPORTED_VERSION=""
     if ! command -v "$tool_name" >/dev/null 2>&1; then
         return 1
     fi
-    TOOL_REPORTED_OUTPUT="$("$tool_name" --version 2>&1 || true)"
-    TOOL_REPORTED_VERSION="$(extract_version_token "$TOOL_REPORTED_OUTPUT")"
-    [ -n "$TOOL_REPORTED_OUTPUT" ]
+    reported_output="$("$tool_name" --version 2>&1 || true)"
+    [ -n "$reported_output" ] || return 1
+    printf '%s\n' "$reported_output"
 }
 
 # Install Pixi if it is not already available on PATH or in PIXI_BIN_DIR.
@@ -183,14 +184,17 @@ ensure_global_tool() {
     tool_name="$1"
     min_version="$2"
     pixi_selector="$3"
+    reported_output=""
+    reported_version=""
 
-    if inspect_tool "$tool_name"; then
+    if reported_output="$(inspect_tool "$tool_name")"; then
+        reported_version="$(extract_version_token "$reported_output")"
         if [ -z "$min_version" ]; then
-            log "Program '$tool_name' is available (reported: $TOOL_REPORTED_OUTPUT)"
+            log "Program '$tool_name' is available (reported: $reported_output)"
             return 0
         fi
-        if [ -n "$TOOL_REPORTED_VERSION" ] && version_ge "$TOOL_REPORTED_VERSION" "$min_version"; then
-            log "Program '$tool_name' meets minimum version $min_version (reported: $TOOL_REPORTED_OUTPUT)"
+        if [ -n "$reported_version" ] && version_ge "$reported_version" "$min_version"; then
+            log "Program '$tool_name' meets minimum version $min_version (reported: $reported_output)"
             return 0
         fi
     fi
@@ -198,32 +202,25 @@ ensure_global_tool() {
     log "Installing '$tool_name' with pixi global install: $pixi_selector"
     run_pixi_global_install "$pixi_selector"
 
-    inspect_tool "$tool_name" || fail "Program '$tool_name' is still unavailable after pixi install."
-    if [ -n "$min_version" ] && { [ -z "$TOOL_REPORTED_VERSION" ] || ! version_ge "$TOOL_REPORTED_VERSION" "$min_version"; }; then
-        fail "Program '$tool_name' is below minimum version $min_version after pixi install (reported: $TOOL_REPORTED_OUTPUT)."
+    reported_output="$(inspect_tool "$tool_name")" || fail "Program '$tool_name' is still unavailable after pixi install."
+    reported_version="$(extract_version_token "$reported_output")"
+    if [ -n "$min_version" ] && { [ -z "$reported_version" ] || ! version_ge "$reported_version" "$min_version"; }; then
+        fail "Program '$tool_name' is below minimum version $min_version after pixi install (reported: $reported_output)."
     fi
     if [ -n "$min_version" ]; then
-        log "Program '$tool_name' meets minimum version $min_version (reported: $TOOL_REPORTED_OUTPUT)"
+        log "Program '$tool_name' meets minimum version $min_version (reported: $reported_output)"
         return 0
     fi
-    log "Program '$tool_name' is available (reported: $TOOL_REPORTED_OUTPUT)"
+    log "Program '$tool_name' is available (reported: $reported_output)"
 }
 
-# Quote shell values safely before embedding them in activation output.
-shell_quote() {
-    printf "'%s'" "$(printf "%s" "$1" | sed "s/'/'\\\\''/g")"
-}
+
 
 # Build the stdout activation command for the current shell session.
 build_activation_command() {
     pixi_home_dir="$(resolve_pixi_home_dir)"
     pixi_bin_dir="$(resolve_pixi_bin_dir "$pixi_home_dir")"
     quoted_bin_dir="$(shell_quote "$pixi_bin_dir")"
-    if [ -n "$GENERATED_HOME" ]; then
-        quoted_home_dir="$(shell_quote "$GENERATED_HOME")"
-        printf 'HOME=%s;export HOME;PIXI_BIN_DIR=%s;case ":$PATH:" in *":$PIXI_BIN_DIR:"*) ;; *) export PATH="$PIXI_BIN_DIR:$PATH";; esac;hash -r 2>/dev/null || true' "$quoted_home_dir" "$quoted_bin_dir"
-        return 0
-    fi
     printf 'PIXI_BIN_DIR=%s;case ":$PATH:" in *":$PIXI_BIN_DIR:"*) ;; *) export PATH="$PIXI_BIN_DIR:$PATH";; esac;hash -r 2>/dev/null || true' "$quoted_bin_dir"
 }
 
@@ -273,6 +270,9 @@ write_profile_block() {
 
 # Update the common Unix login profiles used by non-interactive shells.
 update_shell_profiles() {
+    if [ "$HOME_WAS_GENERATED" = "1" ]; then
+        return 0
+    fi
     write_profile_block "$HOME/.profile"
     for profile_name in ".bash_profile" ".bash_login" ".zprofile"; do
         profile_path="$HOME/$profile_name"
@@ -287,10 +287,7 @@ print_activation() {
     printf '%s\n' "$(build_activation_command)"
 }
 
-EXPORTED_HOME="$(printenv HOME 2>/dev/null || true)"
-
-resolve_home_dir
-export HOME
+resolve_home_setup || true
 
 TEMP_DIR=""
 
