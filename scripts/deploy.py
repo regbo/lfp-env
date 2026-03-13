@@ -106,8 +106,11 @@ def _version_from_tag(tag_name: str) -> str:
 
 
 def _resolve_ref_for_commit() -> str:
-    """Use the current branch name when rewriting README raw URLs."""
-    return _detect_branch_name()
+    """Use latest on main, otherwise keep the current branch name."""
+    branch_name = _detect_branch_name()
+    if branch_name == "main":
+        return "latest"
+    return branch_name
 
 
 def _rewrite_readme_raw_urls(owner: str, repo: str, ref: str) -> bool:
