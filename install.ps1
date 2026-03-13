@@ -2,12 +2,13 @@
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-$REPO = $env:LFP_ENV_REPO
-if (-not $REPO) { $REPO = "regbo/lfp-env" }
-
-$VERSION = $env:LFP_ENV_VERSION
-$MIN_VERSION = $env:LFP_ENV_MIN_VERSION
-$INSTALL_PATH = $env:LFP_ENV_INSTALL_PATH
+$PYTHON_MIN_VERSION = $env:LFP_ENV_PYTHON_MIN_VERSION
+if (-not $PYTHON_MIN_VERSION) { $PYTHON_MIN_VERSION = "3.10" }
+$UV_MIN_VERSION = $env:LFP_ENV_UV_MIN_VERSION
+if (-not $UV_MIN_VERSION) { $UV_MIN_VERSION = "0.9.9" }
+$GIT_MIN_VERSION = $env:LFP_ENV_GIT_MIN_VERSION
+$PIXI_INSTALL_URL = "https://pixi.sh/install.ps1"
+$PROFILE_MARKER = "# lfp-env"
 
 function logging_enabled {
     $level = $env:LFP_ENV_LOG_LEVEL
@@ -23,7 +24,12 @@ function logging_enabled {
 function log {
     param([string]$msg)
     if (-not (logging_enabled)) { return }
-    Write-Error "[lfp-env-install] $msg"
+    [Console]::Error.WriteLine("[lfp-env-install] $msg")
+}
+
+function fail {
+    param([string]$msg)
+    throw "ERROR: $msg"
 }
 
 function is_exec {
@@ -35,34 +41,241 @@ function is_exec {
 function version_ge {
     param($a,$b)
     if ($a -eq $b) { return $true }
-    $sorted = @($a,$b) | Sort-Object {[version]$_}
-    return $sorted[0] -eq $b
+    $normalizedA = $a.ToString().TrimStart("v")
+    $normalizedB = $b.ToString().TrimStart("v")
+    $sorted = @($normalizedA,$normalizedB) | Sort-Object {[version]$_}
+    if ($normalizedA -eq $normalizedB) { return $true }
+    return $sorted[0] -eq $normalizedB
 }
 
-function detect_asset_name {
-    $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+function normalize_version {
+    param([string]$value)
+    if (-not $value) { return $value }
+    return $value.TrimStart("v")
+}
 
-    switch ($arch) {
-        "Arm64" { $arch_target = "aarch64" }
-        "X64"   { $arch_target = "x86_64" }
-        default { throw "ERROR: unsupported architecture: $arch" }
+function resolve_pixi_home_dir {
+    if ($env:PIXI_HOME) {
+        if ($env:PIXI_HOME -eq "~") {
+            return $HOME
+        }
+        if ($env:PIXI_HOME.StartsWith("~/")) {
+            return Join-Path $HOME $env:PIXI_HOME.Substring(2)
+        }
+        return $env:PIXI_HOME
+    }
+    return Join-Path $HOME ".pixi"
+}
+
+function resolve_pixi_bin_dir {
+    param([string]$pixiHomeDir)
+    if ($env:PIXI_BIN_DIR) { return $env:PIXI_BIN_DIR }
+    return Join-Path $pixiHomeDir "bin"
+}
+
+function resolve_python_bin {
+    $python = Get-Command python -ErrorAction SilentlyContinue
+    if ($python) { return $python.Source }
+    return $null
+}
+
+function extract_version_token {
+    param([string]$text)
+    # Match the first dotted version token so values like 0.10.9 are preserved.
+    if (-not $text) { return $null }
+    $match = [regex]::Match($text, "[0-9]+(?:\.[0-9]+)+")
+    if ($match.Success) { return $match.Value }
+    return $null
+}
+
+function prepend_path {
+    param([string]$pathEntry)
+    if (-not $Env:PATH) {
+        $Env:PATH = $pathEntry
+        return
+    }
+    $entries = $Env:PATH -split ';'
+    if ($entries -contains $pathEntry) { return }
+    $Env:PATH = "$pathEntry;$Env:PATH"
+}
+
+function ensure_pixi {
+    $pixiHomeDir = resolve_pixi_home_dir
+    $pixiBinDir = resolve_pixi_bin_dir $pixiHomeDir
+    $pixiBin = Join-Path $pixiBinDir "pixi.exe"
+    New-Item -ItemType Directory -Force -Path $pixiBinDir | Out-Null
+
+    $pixiCommand = Get-Command pixi -ErrorAction SilentlyContinue
+    if ($pixiCommand) {
+        prepend_path (Split-Path $pixiCommand.Source)
+        return
     }
 
-    return "lfp-env-$arch_target-pc-windows-msvc.zip"
+    if (Test-Path $pixiBin -PathType Leaf) {
+        prepend_path $pixiBinDir
+        return
+    }
+
+    log "Installing pixi"
+    $pixiInstallScript = Join-Path $TEMP_DIR "pixi-install.ps1"
+    $pixiInstallLog = Join-Path $TEMP_DIR "pixi-install.log"
+    log "Downloading $PIXI_INSTALL_URL"
+    Invoke-WebRequest -Uri $PIXI_INSTALL_URL -OutFile $pixiInstallScript
+
+    $previousPixiHome = $env:PIXI_HOME
+    $previousPixiBinDir = $env:PIXI_BIN_DIR
+    $env:PIXI_HOME = $pixiHomeDir
+    $env:PIXI_BIN_DIR = $pixiBinDir
+    try {
+        & $pixiInstallScript *> $pixiInstallLog
+    }
+    catch {
+        if (Test-Path $pixiInstallLog) {
+            Get-Content $pixiInstallLog | ForEach-Object { Write-Error $_ }
+        }
+        fail "pixi installation failed."
+    }
+    finally {
+        if ($null -ne $previousPixiHome) { $env:PIXI_HOME = $previousPixiHome } else { Remove-Item Env:PIXI_HOME -ErrorAction SilentlyContinue }
+        if ($null -ne $previousPixiBinDir) { $env:PIXI_BIN_DIR = $previousPixiBinDir } else { Remove-Item Env:PIXI_BIN_DIR -ErrorAction SilentlyContinue }
+    }
+
+    if (-not (Test-Path $pixiBin -PathType Leaf)) {
+        fail "pixi installation did not create $pixiBin."
+    }
+    prepend_path $pixiBinDir
 }
 
-$DEFAULT_INSTALL_PATH = Join-Path $env:LOCALAPPDATA "bin\lfp-env.exe"
-if ($INSTALL_PATH) { $LFP_ENV_BIN = $INSTALL_PATH } else { $LFP_ENV_BIN = $DEFAULT_INSTALL_PATH }
+# Keep wrapper stdout clean for Invoke-Expression by only showing Pixi output on failure.
+function run_pixi_global_install {
+    param([string[]]$selectors)
+    $installLog = Join-Path $TEMP_DIR "pixi-global-install.log"
+    try {
+        & pixi global install @selectors *> $installLog
+    }
+    catch {
+        if (Test-Path $installLog) {
+            Get-Content $installLog | ForEach-Object { Write-Error $_ }
+        }
+        fail "pixi global install failed for: $($selectors -join ' ')"
+    }
+}
 
-$BIN_DIR = Split-Path $LFP_ENV_BIN
-New-Item -ItemType Directory -Force -Path $BIN_DIR | Out-Null
+function ensure_global_tool {
+    param(
+        [string]$toolName,
+        [string]$minVersion,
+        [string]$pixiSelector
+    )
 
-log "Repo: $REPO"
-log "Version: $(if($VERSION){$VERSION}else{'latest'})"
-log "Install path: $LFP_ENV_BIN"
+    $toolCommand = Get-Command $toolName -ErrorAction SilentlyContinue
+    if ($toolCommand) {
+        $reportedOutput = (& $toolCommand.Source --version 2>&1 | Out-String).Trim()
+        $reportedVersion = extract_version_token $reportedOutput
+        if (-not $minVersion) {
+            log "Program '$toolName' is available (reported: $reportedOutput)"
+            return
+        }
+        if ($reportedVersion -and (version_ge $reportedVersion $minVersion)) {
+            log "Program '$toolName' meets minimum version $minVersion (reported: $reportedOutput)"
+            return
+        }
+    }
+
+    log "Installing '$toolName' with pixi global install $pixiSelector"
+    run_pixi_global_install @($pixiSelector)
+
+    $toolCommand = Get-Command $toolName -ErrorAction SilentlyContinue
+    if (-not $toolCommand) {
+        fail "Program '$toolName' is still unavailable after pixi install."
+    }
+    $reportedOutput = (& $toolCommand.Source --version 2>&1 | Out-String).Trim()
+    $reportedVersion = extract_version_token $reportedOutput
+    if ($minVersion -and ((-not $reportedVersion) -or (-not (version_ge $reportedVersion $minVersion)))) {
+        fail "Program '$toolName' is below minimum version $minVersion after pixi install (reported: $reportedOutput)."
+    }
+    if ($minVersion) {
+        log "Program '$toolName' meets minimum version $minVersion (reported: $reportedOutput)"
+        return
+    }
+    log "Program '$toolName' is available (reported: $reportedOutput)"
+}
+
+function build_activation_command {
+    $pixiHomeDir = resolve_pixi_home_dir
+    $pixiBinDir = resolve_pixi_bin_dir $pixiHomeDir
+    return "\$PixiBinDir = '$($pixiBinDir.Replace("'", "''"))'; if (-not ((\$Env:PATH -split ';') -contains \$PixiBinDir)) { \$Env:PATH = `"`$PixiBinDir;`$Env:PATH`" }"
+}
+
+function build_profile_line {
+    $activationCommand = build_activation_command
+    return "$activationCommand $PROFILE_MARKER"
+}
+
+function write_profile_block {
+    param([string]$profilePath)
+
+    $profileDir = Split-Path -Parent $profilePath
+    if ($profileDir) {
+        New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
+    }
+
+    $existingContent = ""
+    if (Test-Path $profilePath -PathType Leaf) {
+        $existingContent = Get-Content -Raw $profilePath
+    }
+
+    $existingLines = $existingContent -split "\r?\n"
+    $activationCommand = build_activation_command
+    $profileLine = build_profile_line
+    if ($existingLines -contains $activationCommand -or $existingLines -contains $profileLine) {
+        return
+    }
+
+    # Remove older managed block content and any previously tagged single-line entries.
+    $managedBlockPattern = "(?ms)^$([regex]::Escape('# >>> lfp-env >>>'))\r?\n.*?^$([regex]::Escape('# <<< lfp-env <<<'))\r?\n?"
+    $cleanedContent = [regex]::Replace($existingContent, $managedBlockPattern, "")
+    $managedLinePattern = "(?m)^.*$([regex]::Escape($PROFILE_MARKER))\s*$\r?\n?"
+    $cleanedContent = [regex]::Replace($cleanedContent, $managedLinePattern, "")
+    $cleanedContent = $cleanedContent.TrimEnd([char[]]"`r`n")
+
+    if ([string]::IsNullOrWhiteSpace($cleanedContent)) {
+        $renderedContent = "$profileLine`r`n"
+    }
+    else {
+        $renderedContent = "$cleanedContent`r`n`r`n$profileLine`r`n"
+    }
+
+    if ($existingContent -ceq $renderedContent) {
+        return
+    }
+
+    Set-Content -Path $profilePath -Value $renderedContent -Encoding utf8
+    log "Updated non-interactive profile $profilePath"
+}
+
+function update_shell_profiles {
+    # Always manage the all-hosts profile, and also refresh the current host profile when present.
+    $profilePaths = [System.Collections.Generic.List[string]]::new()
+    $profilePaths.Add($PROFILE.CurrentUserAllHosts)
+    if ((Test-Path $PROFILE.CurrentUserCurrentHost -PathType Leaf) -and ($PROFILE.CurrentUserCurrentHost -ne $PROFILE.CurrentUserAllHosts)) {
+        $profilePaths.Add($PROFILE.CurrentUserCurrentHost)
+    }
+
+    $seenPaths = @{}
+    foreach ($profilePath in $profilePaths) {
+        if (-not $profilePath) { continue }
+        if ($seenPaths.ContainsKey($profilePath)) { continue }
+        $seenPaths[$profilePath] = $true
+        write_profile_block $profilePath
+    }
+}
+
+function print_activation {
+    Write-Output (build_activation_command)
+}
 
 $TEMP_DIR = $null
-$INSTALL_REQUIRED = $false
 
 function cleanup {
     if ($TEMP_DIR -and (Test-Path $TEMP_DIR)) {
@@ -71,63 +284,26 @@ function cleanup {
 }
 
 try {
-
-    if (-not (is_exec $LFP_ENV_BIN)) {
-        $INSTALL_REQUIRED = $true
-    }
-    else {
-        $CURRENT_VERSION = (& $LFP_ENV_BIN --version 2>$null)
-
-        if ($VERSION -and $MIN_VERSION) {
-            if (-not (version_ge $VERSION $MIN_VERSION)) {
-                throw "ERROR: VERSION ($VERSION) does not satisfy MIN_VERSION ($MIN_VERSION)"
-            }
-        }
-
-        if ($VERSION) {
-            if ($CURRENT_VERSION -ne $VERSION) { $INSTALL_REQUIRED = $true }
-        }
-        elseif ($MIN_VERSION) {
-            if (-not (version_ge $CURRENT_VERSION $MIN_VERSION)) { $INSTALL_REQUIRED = $true }
-        }
-    }
-
-    if ($INSTALL_REQUIRED) {
-
-        $ASSET_NAME = detect_asset_name
-
-        if ($VERSION) {
-            $RELEASE_URL = "https://github.com/$REPO/releases/download/v$VERSION/$ASSET_NAME"
-        } else {
-            $RELEASE_URL = "https://github.com/$REPO/releases/latest/download/$ASSET_NAME"
-        }
-
+    if (-not $TEMP_DIR) {
         $TEMP_DIR = Join-Path ([System.IO.Path]::GetTempPath()) ("lfp-env-install-" + [guid]::NewGuid())
         New-Item -ItemType Directory -Path $TEMP_DIR | Out-Null
-
-        $ARCHIVE_PATH = Join-Path $TEMP_DIR $ASSET_NAME
-
-        log "Downloading $RELEASE_URL"
-        Invoke-WebRequest -Uri $RELEASE_URL -OutFile $ARCHIVE_PATH
-
-        $EXTRACT_DIR = Join-Path $TEMP_DIR "extract"
-        Expand-Archive -Path $ARCHIVE_PATH -DestinationPath $EXTRACT_DIR -Force
-        $EXTRACTED_BIN = Join-Path $EXTRACT_DIR "lfp-env.exe"
-        if (-not (Test-Path $EXTRACTED_BIN)) {
-            throw "ERROR: extracted archive did not contain lfp-env.exe"
-        }
-        Copy-Item $EXTRACTED_BIN $LFP_ENV_BIN -Force
-        log "Installed lfp-env to $LFP_ENV_BIN"
     }
+    ensure_pixi
+    ensure_global_tool "python" $PYTHON_MIN_VERSION "python"
+    $PYTHON_BIN = resolve_python_bin
+    if (-not $PYTHON_BIN) {
+        fail "python $PYTHON_MIN_VERSION+ is required after pixi setup."
+    }
+    log "Python: $PYTHON_BIN"
+    ensure_global_tool "uv" $UV_MIN_VERSION "uv"
+    ensure_global_tool "git" $GIT_MIN_VERSION "git"
+    update_shell_profiles
 
-    $env:LFP_ENV_INSTALLER_MODE = "1"
     if ($args.Count -gt 0) {
-        & $LFP_ENV_BIN @args
+        run_pixi_global_install $args
     }
-    else {
-        & $LFP_ENV_BIN
-    }
-    exit $LASTEXITCODE
+    print_activation
+    exit 0
 }
 finally {
     cleanup

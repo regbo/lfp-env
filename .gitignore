@@ -1,6 +1,8 @@
-# Rust
+# Python
+__pycache__/
+*.py[cod]
+.pixi/
 /target/
-Cargo.lock
 
 # macOS
 .DS_Store
@@ -20,9 +22,6 @@ Icon?
 .vs/
 *.code-workspace
 
-# Rust tooling / misc
-**/*.rs.bk
+# Python tooling / misc
 *.pdb
-*.rlib
-*.rmeta
 *.dSYM

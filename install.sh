@@ -1,10 +1,11 @@
 #!/bin/sh
 set -eu
 
-REPO="${LFP_ENV_REPO:-regbo/lfp-env}"
-VERSION="${LFP_ENV_VERSION:-}"
-MIN_VERSION="${LFP_ENV_MIN_VERSION:-}"
-INSTALL_PATH="${LFP_ENV_INSTALL_PATH:-}"
+PYTHON_MIN_VERSION="${LFP_ENV_PYTHON_MIN_VERSION:-3.10}"
+UV_MIN_VERSION="${LFP_ENV_UV_MIN_VERSION:-0.9.9}"
+GIT_MIN_VERSION="${LFP_ENV_GIT_MIN_VERSION:-}"
+PIXI_INSTALL_URL="https://pixi.sh/install.sh"
+PROFILE_MARKER="# lfp-env"
 
 logging_enabled() {
     level="$(printf '%s' "${LFP_ENV_LOG_LEVEL:-}" | tr '[:upper:]' '[:lower:]')"
@@ -19,15 +20,14 @@ log() {
     printf "%s %s\n" "[lfp-env-install]" "$*" >&2
 }
 
+error() {
+    printf "ERROR: %s\n" "$*" >&2
+    exit 1
+}
+
 is_exec() {
     file_path="${1:-}"
     [ -n "$file_path" ] && [ -f "$file_path" ] && [ -x "$file_path" ]
-}
-
-version_ge() {
-    [ "$1" = "$2" ] && return 0
-    first="$(printf "%s\n%s\n" "$1" "$2" | sort -V | head -n1)"
-    [ "$first" = "$2" ]
 }
 
 resolve_home_dir() {
@@ -37,6 +37,34 @@ resolve_home_dir() {
     fi
     mkdir -p "./home"
     printf "%s\n" "$(pwd)/home"
+}
+
+resolve_pixi_home_dir() {
+    pixi_home="${PIXI_HOME:-$HOME/.pixi}"
+    case "$pixi_home" in
+        '~' | '~'/*) pixi_home="${HOME}${pixi_home#\~}" ;;
+    esac
+    printf "%s\n" "$pixi_home"
+}
+
+normalize_version() {
+    printf "%s\n" "${1#v}"
+}
+
+version_ge() {
+    normalized_a="$(normalize_version "$1")"
+    normalized_b="$(normalize_version "$2")"
+    [ "$normalized_a" = "$normalized_b" ] && return 0
+    first="$(printf "%s\n%s\n" "$normalized_a" "$normalized_b" | sort -V | head -n1)"
+    [ "$first" = "$normalized_b" ]
+}
+
+resolve_pixi_bin_dir() {
+    if [ -n "${PIXI_BIN_DIR:-}" ]; then
+        printf "%s\n" "${PIXI_BIN_DIR}"
+        return 0
+    fi
+    printf "%s/bin\n" "$1"
 }
 
 download_file() {
@@ -59,37 +87,182 @@ download_file() {
     exit 1
 }
 
-detect_asset_name() {
-    kernel_name=$(uname -s)
-    machine_name=$(uname -m)
+resolve_python_bin() {
+    if command -v python >/dev/null 2>&1; then
+        command -v python
+        return 0
+    fi
+    return 1
+}
 
-    case "$kernel_name" in
-        Linux)  os_target="unknown-linux-musl" ;;
-        Darwin) os_target="apple-darwin" ;;
-        *) printf "ERROR: unsupported operating system: %s\n" "$kernel_name" >&2; exit 1 ;;
+prepend_path() {
+    path_entry="$1"
+    case ":${PATH:-}:" in
+        *":$path_entry:"*) ;;
+        *)
+            if [ -n "${PATH:-}" ]; then
+                PATH="$path_entry:$PATH"
+            else
+                PATH="$path_entry"
+            fi
+            export PATH
+            ;;
     esac
+}
 
-    case "$machine_name" in
-        x86_64|amd64) arch_target="x86_64" ;;
-        arm64|aarch64) arch_target="aarch64" ;;
-        *) printf "ERROR: unsupported architecture: %s\n" "$machine_name" >&2; exit 1 ;;
-    esac
+ensure_pixi() {
+    pixi_home_dir="$(resolve_pixi_home_dir)"
+    pixi_bin_dir="$(resolve_pixi_bin_dir "$pixi_home_dir")"
+    pixi_bin="$pixi_bin_dir/pixi"
+    mkdir -p "$pixi_bin_dir"
 
-    printf "lfp-env-%s-%s.tar.gz\n" "$arch_target" "$os_target"
+    if command -v pixi >/dev/null 2>&1; then
+        prepend_path "$(dirname "$(command -v pixi)")"
+        return 0
+    fi
+
+    if is_exec "$pixi_bin"; then
+        prepend_path "$pixi_bin_dir"
+        return 0
+    fi
+
+    log "Installing pixi"
+    pixi_install_script="$TEMP_DIR/pixi-install.sh"
+    pixi_install_log="$TEMP_DIR/pixi-install.log"
+    download_file "$PIXI_INSTALL_URL" "$pixi_install_script"
+    chmod +x "$pixi_install_script"
+    if ! PIXI_HOME="$pixi_home_dir" PIXI_BIN_DIR="$pixi_bin_dir" sh "$pixi_install_script" >"$pixi_install_log" 2>&1; then
+        while IFS= read -r line; do
+            printf "%s\n" "$line" >&2
+        done < "$pixi_install_log"
+        error "pixi installation failed."
+    fi
+    [ -x "$pixi_bin" ] || error "pixi installation did not create $pixi_bin."
+    prepend_path "$pixi_bin_dir"
+}
+
+# Keep wrapper stdout clean for eval by only replaying Pixi output on failure.
+run_pixi_global_install() {
+    install_log="$TEMP_DIR/pixi-global-install.log"
+    if ! pixi global install "$@" >"$install_log" 2>&1; then
+        while IFS= read -r line; do
+            printf "%s\n" "$line" >&2
+        done < "$install_log"
+        error "pixi global install failed for: $*"
+    fi
+}
+
+ensure_global_tool() {
+    tool_name="$1"
+    min_version="$2"
+    pixi_selector="$3"
+
+    if command -v "$tool_name" >/dev/null 2>&1; then
+        reported_output="$("$tool_name" --version 2>&1 || true)"
+        reported_version="$(extract_version_token "$reported_output")"
+        if [ -z "$min_version" ]; then
+            log "Program '$tool_name' is available (reported: $reported_output)"
+            return 0
+        fi
+        if [ -n "$reported_version" ] && version_ge "$reported_version" "$min_version"; then
+            log "Program '$tool_name' meets minimum version $min_version (reported: $reported_output)"
+            return 0
+        fi
+    fi
+
+    log "Installing '$tool_name' with pixi global install $pixi_selector"
+    run_pixi_global_install "$pixi_selector"
+
+    reported_output="$("$tool_name" --version 2>&1 || true)"
+    reported_version="$(extract_version_token "$reported_output")"
+    [ -n "$reported_output" ] || error "Program '$tool_name' is still unavailable after pixi install."
+    if [ -n "$min_version" ] && { [ -z "$reported_version" ] || ! version_ge "$reported_version" "$min_version"; }; then
+        error "Program '$tool_name' is below minimum version $min_version after pixi install (reported: $reported_output)."
+    fi
+    if [ -n "$min_version" ]; then
+        log "Program '$tool_name' meets minimum version $min_version (reported: $reported_output)"
+        return 0
+    fi
+    log "Program '$tool_name' is available (reported: $reported_output)"
+}
+
+extract_version_token() {
+    # Match the first dotted version token so values like 0.10.9 are preserved.
+    printf "%s\n" "$1" | awk 'match($0, /[0-9]+(\.[0-9]+)+/) { print substr($0, RSTART, RLENGTH); exit }'
+}
+
+shell_quote() {
+    printf "'%s'" "$(printf "%s" "$1" | sed "s/'/'\\\\''/g")"
+}
+
+build_activation_command() {
+    pixi_home_dir="$(resolve_pixi_home_dir)"
+    pixi_bin_dir="$(resolve_pixi_bin_dir "$pixi_home_dir")"
+    quoted_bin_dir="$(shell_quote "$pixi_bin_dir")"
+    printf 'PIXI_BIN_DIR=%s;case ":$PATH:" in *":$PIXI_BIN_DIR:"*) ;; *) export PATH="$PIXI_BIN_DIR:$PATH";; esac;hash -r 2>/dev/null || true' "$quoted_bin_dir"
+}
+
+build_profile_line() {
+    activation_command="$(build_activation_command)"
+    printf '%s %s\n' "$activation_command" "$PROFILE_MARKER"
+}
+
+write_profile_block() {
+    profile_path="$1"
+    profile_dir="$(dirname "$profile_path")"
+    cleaned_path="$(mktemp "$TEMP_DIR/profile-clean.XXXXXX")"
+    rendered_path="$(mktemp "$TEMP_DIR/profile-rendered.XXXXXX")"
+    activation_command="$(build_activation_command)"
+    activation_line="$(build_profile_line)"
+
+    mkdir -p "$profile_dir"
+    if [ -f "$profile_path" ]; then
+        if grep -F -x -- "$activation_command" "$profile_path" >/dev/null 2>&1 || grep -F -x -- "$activation_line" "$profile_path" >/dev/null 2>&1; then
+            return 0
+        fi
+        awk -v marker="$PROFILE_MARKER" '
+            $0 == "# >>> lfp-env >>>" { skip = 1; next }
+            $0 == "# <<< lfp-env <<<" { skip = 0; next }
+            index($0, marker) > 0 { next }
+            skip != 1 { print }
+        ' "$profile_path" >"$cleaned_path"
+    else
+        : >"$cleaned_path"
+    fi
+
+    if [ -s "$cleaned_path" ]; then
+        cp "$cleaned_path" "$rendered_path"
+        printf '\n' >>"$rendered_path"
+    else
+        : >"$rendered_path"
+    fi
+    printf '%s\n' "$activation_line" >>"$rendered_path"
+
+    if [ -f "$profile_path" ] && cmp -s "$profile_path" "$rendered_path"; then
+        return 0
+    fi
+
+    mv "$rendered_path" "$profile_path"
+    log "Updated non-interactive profile $profile_path"
+}
+
+update_shell_profiles() {
+    # Always manage ~/.profile, and also refresh shell-specific login profiles when present.
+    write_profile_block "$HOME/.profile"
+    for profile_name in ".bash_profile" ".bash_login" ".zprofile"; do
+        profile_path="$HOME/$profile_name"
+        if [ -f "$profile_path" ]; then
+            write_profile_block "$profile_path"
+        fi
+    done
+}
+
+print_activation() {
+    printf '%s\n' "$(build_activation_command)"
 }
 
 HOME="$(resolve_home_dir)"
 export HOME
-
-DEFAULT_INSTALL_PATH="${HOME}/.local/bin/lfp-env"
-LFP_ENV_BIN="${INSTALL_PATH:-$DEFAULT_INSTALL_PATH}"
-BIN_DIR="$(dirname "$LFP_ENV_BIN")"
-
-mkdir -p "$BIN_DIR"
-
-log "Repo: $REPO"
-log "Version: ${VERSION:-latest}"
-log "Install path: $LFP_ENV_BIN"
 
 TEMP_DIR=""
 
@@ -101,50 +274,17 @@ cleanup() {
 
 trap cleanup EXIT HUP INT TERM
 
-INSTALL_REQUIRED=0
+TEMP_DIR="${TEMP_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/lfp-env-install.XXXXXX")}"
+ensure_pixi
+ensure_global_tool "python" "$PYTHON_MIN_VERSION" "python"
+PYTHON_BIN="$(resolve_python_bin || true)"
+[ -n "$PYTHON_BIN" ] || error "python ${PYTHON_MIN_VERSION}+ is required after pixi setup."
+log "Python: $PYTHON_BIN"
+ensure_global_tool "uv" "$UV_MIN_VERSION" "uv"
+ensure_global_tool "git" "$GIT_MIN_VERSION" "git"
+update_shell_profiles
 
-if ! is_exec "$LFP_ENV_BIN"; then
-    INSTALL_REQUIRED=1
-else
-    CURRENT_VERSION="$("$LFP_ENV_BIN" --version 2>/dev/null || true)"
-
-    if [ -n "$VERSION" ] && [ -n "$MIN_VERSION" ]; then
-        if ! version_ge "$VERSION" "$MIN_VERSION"; then
-            printf "ERROR: VERSION (%s) does not satisfy MIN_VERSION (%s)\n" "$VERSION" "$MIN_VERSION" >&2
-            exit 1
-        fi
-    fi
-
-    if [ -n "$VERSION" ]; then
-        [ "$CURRENT_VERSION" = "$VERSION" ] || INSTALL_REQUIRED=1
-    elif [ -n "$MIN_VERSION" ]; then
-        version_ge "$CURRENT_VERSION" "$MIN_VERSION" || INSTALL_REQUIRED=1
-    fi
-fi
-
-if [ "$INSTALL_REQUIRED" -eq 1 ]; then
-    ASSET_NAME="$(detect_asset_name)"
-
-    if [ -n "$VERSION" ]; then
-        RELEASE_URL="https://github.com/${REPO}/releases/download/v${VERSION}/${ASSET_NAME}"
-    else
-        RELEASE_URL="https://github.com/${REPO}/releases/latest/download/${ASSET_NAME}"
-    fi
-
-    TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/lfp-env-install.XXXXXX")"
-    ARCHIVE_PATH="${TEMP_DIR}/${ASSET_NAME}"
-
-    download_file "$RELEASE_URL" "$ARCHIVE_PATH"
-
-    tar -xzf "$ARCHIVE_PATH" -C "$BIN_DIR"
-
-    [ -f "$LFP_ENV_BIN" ] || { echo "ERROR: extracted archive did not contain lfp-env" >&2; exit 1; }
-
-    chmod +x "$LFP_ENV_BIN"
-fi
-
-export LFP_ENV_INSTALLER_MODE=1
 if [ "$#" -gt 0 ]; then
-    exec "$LFP_ENV_BIN" "$@"
+    run_pixi_global_install "$@"
 fi
-exec "$LFP_ENV_BIN"
+print_activation

@@ -1,0 +1,37 @@
+[project]
+name = "lfp-env"
+version = "1.0.3"
+description = "Pixi bootstrap scripts for local environment setup."
+requires-python = ">=3.10,<3.14"
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64", "linux-aarch64", "osx-64", "osx-arm64", "win-64"]
+
+[tool.pixi.dependencies]
+python = ">=3.10,<3.14"
+uv = ">=0.9"
+
+[tool.pixi.pypi-dependencies]
+gitpython = "*"
+semver = "*"
+
+[tool.pixi.tasks]
+commit = { cmd = [
+    "python",
+    "scripts/deploy.py",
+    "commit",
+], description = "Commit repository changes with the deploy script." }
+tag = { cmd = [
+    "python",
+    "scripts/deploy.py",
+    "tag",
+], description = "Create and push the next semantic version tag." }
+test = { cmd = [
+    "sh",
+    "tests/test-install.sh",
+], description = "Run the Unix installer profile tests." }
+dev = { cmd = [
+    "sh",
+    "./install.sh",
+], description = "Run the Unix bootstrap script." }

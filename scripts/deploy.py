@@ -15,13 +15,13 @@ import semver
 
 _LOG = logging.getLogger("deploy")
 _README_PATH = pathlib.Path("README.md")
-_CARGO_TOML_PATH = pathlib.Path("Cargo.toml")
+_PYPROJECT_PATH = pathlib.Path("pyproject.toml")
 _URL_PATTERN = re.compile(
     r"https://raw\.githubusercontent\.com/[^/\s]+/[^/\s]+/[^/\s]+/install\.(sh|ps1)"
 )
 _REPO_PATTERN = re.compile(r"(?:[:/])(?P<owner>[^/:]+)/(?P<repo>[^/]+?)(?:\.git)?$")
 _SEMVER_TAG_PATTERN = re.compile(r"^(?P<prefix>v?)(?P<version>\d+\.\d+\.\d+)$")
-_CARGO_VERSION_PATTERN = re.compile(r'^(version\s*=\s*")(?P<version>\d+\.\d+\.\d+)(")\s*$')
+_PYPROJECT_VERSION_PATTERN = re.compile(r'^(version\s*=\s*")(?P<version>\d+\.\d+\.\d+)(")\s*$')
 
 
 def _parse_bool(value: str) -> bool:
@@ -149,26 +149,26 @@ def _rewrite_readme_raw_urls(owner: str, repo: str, ref: str) -> bool:
     return True
 
 
-def _rewrite_cargo_version(version: str) -> bool:
-    """Update Cargo.toml package.version to match the resolved release tag."""
-    if not _CARGO_TOML_PATH.exists():
-        raise FileNotFoundError("Cargo.toml not found in repository root.")
+def _rewrite_pyproject_version(version: str) -> bool:
+    """Update pyproject.toml project.version to match the resolved release tag."""
+    if not _PYPROJECT_PATH.exists():
+        raise FileNotFoundError("pyproject.toml not found in repository root.")
 
-    content = _CARGO_TOML_PATH.read_text(encoding="utf-8")
+    content = _PYPROJECT_PATH.read_text(encoding="utf-8")
     updated_lines: list[str] = []
-    in_package_section = False
+    in_project_section = False
     replaced = False
 
     for line in content.splitlines():
         stripped = line.strip()
         if stripped.startswith("[") and stripped.endswith("]"):
-            in_package_section = stripped == "[package]"
-        if in_package_section and not replaced:
-            match = _CARGO_VERSION_PATTERN.match(stripped)
+            in_project_section = stripped == "[project]"
+        if in_project_section and not replaced:
+            match = _PYPROJECT_VERSION_PATTERN.match(stripped)
             if match:
                 current_version = match.group("version")
                 if current_version == version:
-                    _LOG.info("Cargo.toml version already set to %s.", version)
+                    _LOG.info("pyproject.toml version already set to %s.", version)
                     return False
                 prefix, suffix = match.group(1), match.group(3)
                 line = f"{prefix}{version}{suffix}"
@@ -176,10 +176,10 @@ def _rewrite_cargo_version(version: str) -> bool:
         updated_lines.append(line)
 
     if not replaced:
-        raise RuntimeError("Could not find package.version entry in Cargo.toml.")
+        raise RuntimeError("Could not find project.version entry in pyproject.toml.")
 
-    _CARGO_TOML_PATH.write_text("\n".join(updated_lines) + "\n", encoding="utf-8")
-    _LOG.info("Updated Cargo.toml version to %s.", version)
+    _PYPROJECT_PATH.write_text("\n".join(updated_lines) + "\n", encoding="utf-8")
+    _LOG.info("Updated pyproject.toml version to %s.", version)
     return True
 
 
@@ -249,7 +249,7 @@ def _run_tag_command(
     ref = _resolve_ref_for_commit()
     _LOG.info("Using tag: %s", resolved_tag)
     _rewrite_readme_raw_urls(owner=owner, repo=repo, ref=ref)
-    _rewrite_cargo_version(resolved_version)
+    _rewrite_pyproject_version(resolved_version)
     resolved = _resolve_message(
         user_message=message,
         default_message=f"chore: sync README raw URLs to {owner}/{repo}/{ref}",
