@@ -112,6 +112,11 @@ build_generated_home_activation_command() {
     printf 'HOME=%s;export HOME;PIXI_BIN_DIR=%s;case ":$PATH:" in *":$PIXI_BIN_DIR:"*) ;; *) export PATH="$PIXI_BIN_DIR:$PATH";; esac;hash -r 2>/dev/null || true' "'$home_dir'" "'$pixi_bin_dir'"
 }
 
+extract_generated_home_dir() {
+    file_path="$1"
+    sed -n "s/^HOME='\([^']*\)';export HOME;.*/\1/p" "$file_path"
+}
+
 assert_profile_created_once() {
     home_dir="$1"
     activation_command="$(build_activation_command "$home_dir")"
@@ -175,12 +180,13 @@ test_additional_args_are_globally_installed() {
 test_generated_home_is_exported() {
     test_root="$TEMP_DIR/generated-home"
     working_dir="$test_root/workspace"
-    generated_home_dir="$working_dir/home"
     mkdir -p "$working_dir"
     : >"$TEMP_DIR/pixi-install.log"
 
     run_install_without_home "$working_dir" "$test_root/run.err" "$test_root/run.out"
 
+    generated_home_dir="$(extract_generated_home_dir "$test_root/run.out")"
+    [ -n "$generated_home_dir" ] || fail "Expected generated HOME to be exported in activation output"
     activation_command="$(build_generated_home_activation_command "$generated_home_dir")"
     assert_contains "$test_root/run.out" "$activation_command"
     assert_contains "$generated_home_dir/.profile" "$activation_command # lfp-env"

@@ -33,7 +33,7 @@ ensure_writable_dir() {
     test_file=""
     mkdir -p "$dir_path" 2>/dev/null || return 1
     test_file="$dir_path/.lfp-env-write-test.$$"
-    : >"$test_file" 2>/dev/null || return 1
+    touch "$test_file" >/dev/null 2>&1 || return 1
     rm -f "$test_file"
 }
 
@@ -41,14 +41,13 @@ ensure_writable_dir() {
 resolve_home_dir() {
     if [ -n "${HOME:-}" ]; then
         GENERATED_HOME=""
-        printf "%s\n" "$HOME"
         return 0
     fi
 
     for candidate_dir in "/home" "/home/app" "$(pwd)/home"; do
         if ensure_writable_dir "$candidate_dir"; then
+            HOME="$candidate_dir"
             GENERATED_HOME="$candidate_dir"
-            printf "%s\n" "$candidate_dir"
             return 0
         fi
     done
@@ -286,7 +285,7 @@ print_activation() {
     printf '%s\n' "$(build_activation_command)"
 }
 
-HOME="$(resolve_home_dir)"
+resolve_home_dir
 export HOME
 
 TEMP_DIR=""
