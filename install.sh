@@ -6,21 +6,27 @@ UV_MIN_VERSION="${LFP_ENV_UV_MIN_VERSION:-0.9.9}"
 GIT_MIN_VERSION="${LFP_ENV_GIT_MIN_VERSION:-}"
 PIXI_INSTALL_URL="https://pixi.sh/install.sh"
 PROFILE_MARKER="# lfp-env"
+TOOL_REPORTED_OUTPUT=""
+TOOL_REPORTED_VERSION=""
 
+# Write routine installer activity to stderr.
 log() {
     printf "%s %s\n" "[lfp-env-install]" "$*" >&2
 }
 
-error() {
+# Fail fast with a consistent error prefix.
+fail() {
     printf "ERROR: %s\n" "$*" >&2
     exit 1
 }
 
+# Check whether a local path is an executable file.
 is_exec() {
     file_path="${1:-}"
     [ -n "$file_path" ] && [ -f "$file_path" ] && [ -x "$file_path" ]
 }
 
+# Resolve HOME, falling back to a local sandbox for bare environments.
 resolve_home_dir() {
     if [ -n "${HOME:-}" ]; then
         printf "%s\n" "$HOME"
@@ -30,6 +36,7 @@ resolve_home_dir() {
     printf "%s\n" "$(pwd)/home"
 }
 
+# Resolve the Pixi home directory, honoring PIXI_HOME.
 resolve_pixi_home_dir() {
     pixi_home="${PIXI_HOME:-$HOME/.pixi}"
     case "$pixi_home" in
@@ -38,10 +45,12 @@ resolve_pixi_home_dir() {
     printf "%s\n" "$pixi_home"
 }
 
+# Normalize versions so comparisons accept v-prefixed values.
 normalize_version() {
     printf "%s\n" "${1#v}"
 }
 
+# Compare two dotted versions and return success when the first is >= the second.
 version_ge() {
     normalized_a="$(normalize_version "$1")"
     normalized_b="$(normalize_version "$2")"
@@ -50,6 +59,7 @@ version_ge() {
     [ "$first" = "$normalized_b" ]
 }
 
+# Resolve the Pixi bin directory, honoring PIXI_BIN_DIR.
 resolve_pixi_bin_dir() {
     if [ -n "${PIXI_BIN_DIR:-}" ]; then
         printf "%s\n" "${PIXI_BIN_DIR}"
@@ -58,6 +68,7 @@ resolve_pixi_bin_dir() {
     printf "%s/bin\n" "$1"
 }
 
+# Download a file with whichever standard fetcher is available.
 download_file() {
     url=$1
     destination=$2
@@ -74,10 +85,10 @@ download_file() {
         return 0
     fi
 
-    printf "ERROR: neither curl nor wget is available on PATH.\n" >&2
-    exit 1
+    fail "neither curl nor wget is available on PATH."
 }
 
+# Prepend a PATH entry once so newly installed tools are visible immediately.
 prepend_path() {
     path_entry="$1"
     case ":${PATH:-}:" in
@@ -93,6 +104,25 @@ prepend_path() {
     esac
 }
 
+# Capture the first dotted version token from common CLI version output.
+extract_version_token() {
+    printf "%s\n" "$1" | awk 'match($0, /[0-9]+(\.[0-9]+)+/) { print substr($0, RSTART, RLENGTH); exit }'
+}
+
+# Inspect a tool once and cache its raw output plus parsed version in globals.
+inspect_tool() {
+    tool_name="$1"
+    TOOL_REPORTED_OUTPUT=""
+    TOOL_REPORTED_VERSION=""
+    if ! command -v "$tool_name" >/dev/null 2>&1; then
+        return 1
+    fi
+    TOOL_REPORTED_OUTPUT="$("$tool_name" --version 2>&1 || true)"
+    TOOL_REPORTED_VERSION="$(extract_version_token "$TOOL_REPORTED_OUTPUT")"
+    [ -n "$TOOL_REPORTED_OUTPUT" ]
+}
+
+# Install Pixi if it is not already available on PATH or in PIXI_BIN_DIR.
 ensure_pixi() {
     pixi_home_dir="$(resolve_pixi_home_dir)"
     pixi_bin_dir="$(resolve_pixi_bin_dir "$pixi_home_dir")"
@@ -114,63 +144,56 @@ ensure_pixi() {
     download_file "$PIXI_INSTALL_URL" "$pixi_install_script"
     chmod +x "$pixi_install_script"
     if ! PIXI_HOME="$pixi_home_dir" PIXI_BIN_DIR="$pixi_bin_dir" sh "$pixi_install_script" >&2; then
-        error "pixi installation failed."
+        fail "pixi installation failed."
     fi
-    [ -x "$pixi_bin" ] || error "pixi installation did not create $pixi_bin."
+    [ -x "$pixi_bin" ] || fail "pixi installation did not create $pixi_bin."
     prepend_path "$pixi_bin_dir"
 }
 
-# Keep wrapper stdout clean for eval by sending install output to stderr.
+# Run pixi global install while keeping stdout reserved for activation output.
 run_pixi_global_install() {
-    log "Installing with pixi global install: $*"
     if ! pixi global install "$@" >&2; then
-        error "pixi global install failed for: $*"
+        fail "pixi global install failed for: $*"
     fi
 }
 
+# Ensure a required global tool exists and optionally meets a minimum version.
 ensure_global_tool() {
     tool_name="$1"
     min_version="$2"
     pixi_selector="$3"
 
-    if command -v "$tool_name" >/dev/null 2>&1; then
-        reported_output="$("$tool_name" --version 2>&1 || true)"
-        reported_version="$(extract_version_token "$reported_output")"
+    if inspect_tool "$tool_name"; then
         if [ -z "$min_version" ]; then
-            log "Program '$tool_name' is available (reported: $reported_output)"
+            log "Program '$tool_name' is available (reported: $TOOL_REPORTED_OUTPUT)"
             return 0
         fi
-        if [ -n "$reported_version" ] && version_ge "$reported_version" "$min_version"; then
-            log "Program '$tool_name' meets minimum version $min_version (reported: $reported_output)"
+        if [ -n "$TOOL_REPORTED_VERSION" ] && version_ge "$TOOL_REPORTED_VERSION" "$min_version"; then
+            log "Program '$tool_name' meets minimum version $min_version (reported: $TOOL_REPORTED_OUTPUT)"
             return 0
         fi
     fi
 
-    
+    log "Installing '$tool_name' with pixi global install: $pixi_selector"
     run_pixi_global_install "$pixi_selector"
 
-    reported_output="$("$tool_name" --version 2>&1 || true)"
-    reported_version="$(extract_version_token "$reported_output")"
-    [ -n "$reported_output" ] || error "Program '$tool_name' is still unavailable after pixi install."
-    if [ -n "$min_version" ] && { [ -z "$reported_version" ] || ! version_ge "$reported_version" "$min_version"; }; then
-        error "Program '$tool_name' is below minimum version $min_version after pixi install (reported: $reported_output)."
+    inspect_tool "$tool_name" || fail "Program '$tool_name' is still unavailable after pixi install."
+    if [ -n "$min_version" ] && { [ -z "$TOOL_REPORTED_VERSION" ] || ! version_ge "$TOOL_REPORTED_VERSION" "$min_version"; }; then
+        fail "Program '$tool_name' is below minimum version $min_version after pixi install (reported: $TOOL_REPORTED_OUTPUT)."
     fi
     if [ -n "$min_version" ]; then
-        log "Program '$tool_name' meets minimum version $min_version (reported: $reported_output)"
+        log "Program '$tool_name' meets minimum version $min_version (reported: $TOOL_REPORTED_OUTPUT)"
         return 0
     fi
-    log "Program '$tool_name' is available (reported: $reported_output)"
+    log "Program '$tool_name' is available (reported: $TOOL_REPORTED_OUTPUT)"
 }
 
-extract_version_token() {
-    # Match the first dotted version token so values like 0.10.9 are preserved.
-    printf "%s\n" "$1" | awk 'match($0, /[0-9]+(\.[0-9]+)+/) { print substr($0, RSTART, RLENGTH); exit }'
-}
-
+# Quote shell values safely before embedding them in activation output.
 shell_quote() {
     printf "'%s'" "$(printf "%s" "$1" | sed "s/'/'\\\\''/g")"
 }
 
+# Build the stdout activation command for the current shell session.
 build_activation_command() {
     pixi_home_dir="$(resolve_pixi_home_dir)"
     pixi_bin_dir="$(resolve_pixi_bin_dir "$pixi_home_dir")"
@@ -178,11 +201,13 @@ build_activation_command() {
     printf 'PIXI_BIN_DIR=%s;case ":$PATH:" in *":$PIXI_BIN_DIR:"*) ;; *) export PATH="$PIXI_BIN_DIR:$PATH";; esac;hash -r 2>/dev/null || true' "$quoted_bin_dir"
 }
 
+# Tag the managed profile line so reruns can avoid duplicates.
 build_profile_line() {
     activation_command="$(build_activation_command)"
     printf '%s %s\n' "$activation_command" "$PROFILE_MARKER"
 }
 
+# Append the managed activation line to a profile when it is not already present.
 write_profile_block() {
     profile_path="$1"
     profile_dir="$(dirname "$profile_path")"
@@ -220,8 +245,8 @@ write_profile_block() {
     log "Updated non-interactive profile $profile_path"
 }
 
+# Update the common Unix login profiles used by non-interactive shells.
 update_shell_profiles() {
-    # Always manage ~/.profile, and also refresh shell-specific login profiles when present.
     write_profile_block "$HOME/.profile"
     for profile_name in ".bash_profile" ".bash_login" ".zprofile"; do
         profile_path="$HOME/$profile_name"
@@ -231,6 +256,7 @@ update_shell_profiles() {
     done
 }
 
+# Print the activation command that callers should eval in the current shell.
 print_activation() {
     printf '%s\n' "$(build_activation_command)"
 }
@@ -240,6 +266,7 @@ export HOME
 
 TEMP_DIR=""
 
+# Remove temporary installer files on exit.
 cleanup() {
     if [ -n "$TEMP_DIR" ] && [ -d "$TEMP_DIR" ]; then
         rm -rf "$TEMP_DIR"
@@ -256,6 +283,7 @@ ensure_global_tool "git" "$GIT_MIN_VERSION" "git"
 update_shell_profiles
 
 if [ "$#" -gt 0 ]; then
+    log "Installing additional packages with pixi global install: $*"
     run_pixi_global_install "$@"
 fi
 print_activation

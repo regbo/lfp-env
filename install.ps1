@@ -10,38 +10,44 @@ $GIT_MIN_VERSION = $env:LFP_ENV_GIT_MIN_VERSION
 $PIXI_INSTALL_URL = "https://pixi.sh/install.ps1"
 $PROFILE_MARKER = "# lfp-env"
 
+# Write routine installer activity to stderr.
 function log {
     param([string]$msg)
     [Console]::Error.WriteLine("[lfp-env-install] $msg")
 }
 
+# Fail fast with a consistent error prefix.
 function fail {
     param([string]$msg)
     throw "ERROR: $msg"
 }
 
+# Check whether a local path points at a file we can execute.
 function is_exec {
     param([string]$path)
     if (-not $path) { return $false }
     return (Test-Path $path -PathType Leaf)
 }
 
-function version_ge {
-    param($a,$b)
-    if ($a -eq $b) { return $true }
-    $normalizedA = $a.ToString().TrimStart("v")
-    $normalizedB = $b.ToString().TrimStart("v")
-    $sorted = @($normalizedA,$normalizedB) | Sort-Object {[version]$_}
-    if ($normalizedA -eq $normalizedB) { return $true }
-    return $sorted[0] -eq $normalizedB
-}
-
+# Normalize versions so comparisons accept v-prefixed values.
 function normalize_version {
     param([string]$value)
     if (-not $value) { return $value }
     return $value.TrimStart("v")
 }
 
+# Compare two dotted versions and return success when the first is >= the second.
+function version_ge {
+    param($a,$b)
+    if ($a -eq $b) { return $true }
+    $normalizedA = normalize_version $a.ToString()
+    $normalizedB = normalize_version $b.ToString()
+    $sorted = @($normalizedA,$normalizedB) | Sort-Object {[version]$_}
+    if ($normalizedA -eq $normalizedB) { return $true }
+    return $sorted[0] -eq $normalizedB
+}
+
+# Resolve the Pixi home directory, honoring PIXI_HOME.
 function resolve_pixi_home_dir {
     if ($env:PIXI_HOME) {
         if ($env:PIXI_HOME -eq "~") {
@@ -55,21 +61,23 @@ function resolve_pixi_home_dir {
     return Join-Path $HOME ".pixi"
 }
 
+# Resolve the Pixi bin directory, honoring PIXI_BIN_DIR.
 function resolve_pixi_bin_dir {
     param([string]$pixiHomeDir)
     if ($env:PIXI_BIN_DIR) { return $env:PIXI_BIN_DIR }
     return Join-Path $pixiHomeDir "bin"
 }
 
+# Capture the first dotted version token from common CLI version output.
 function extract_version_token {
     param([string]$text)
-    # Match the first dotted version token so values like 0.10.9 are preserved.
     if (-not $text) { return $null }
     $match = [regex]::Match($text, "[0-9]+(?:\.[0-9]+)+")
     if ($match.Success) { return $match.Value }
     return $null
 }
 
+# Prepend a PATH entry once so newly installed tools are visible immediately.
 function prepend_path {
     param([string]$pathEntry)
     if (-not $Env:PATH) {
@@ -81,6 +89,7 @@ function prepend_path {
     $Env:PATH = "$pathEntry;$Env:PATH"
 }
 
+# Stream a command's output to stderr so stdout stays reserved for activation output.
 function invoke_with_stderr_pipe {
     param([scriptblock]$Command)
 
@@ -88,6 +97,21 @@ function invoke_with_stderr_pipe {
     return $?
 }
 
+# Inspect a tool once and return the raw output plus parsed version.
+function inspect_tool {
+    param([string]$toolName)
+
+    $toolCommand = Get-Command $toolName -ErrorAction SilentlyContinue
+    if (-not $toolCommand) { return $null }
+    $reportedOutput = (& $toolCommand.Source --version 2>&1 | Out-String).Trim()
+    return [pscustomobject]@{
+        Command = $toolCommand
+        Output = $reportedOutput
+        Version = extract_version_token $reportedOutput
+    }
+}
+
+# Install Pixi if it is not already available on PATH or in PIXI_BIN_DIR.
 function ensure_pixi {
     $pixiHomeDir = resolve_pixi_home_dir
     $pixiBinDir = resolve_pixi_bin_dir $pixiHomeDir
@@ -133,10 +157,9 @@ function ensure_pixi {
     prepend_path $pixiBinDir
 }
 
-# Keep wrapper stdout clean for Invoke-Expression by sending install output to stderr.
+# Run pixi global install while keeping stdout reserved for activation output.
 function run_pixi_global_install {
     param([string[]]$selectors)
-    log "Installing with pixi global install: $($selectors -join ' ')"
     try {
         if (-not (invoke_with_stderr_pipe { & pixi global install @selectors })) {
             fail "pixi global install failed for: $($selectors -join ' ')"
@@ -147,6 +170,7 @@ function run_pixi_global_install {
     }
 }
 
+# Ensure a required global tool exists and optionally meets a minimum version.
 function ensure_global_tool {
     param(
         [string]$toolName,
@@ -154,50 +178,49 @@ function ensure_global_tool {
         [string]$pixiSelector
     )
 
-    $toolCommand = Get-Command $toolName -ErrorAction SilentlyContinue
-    if ($toolCommand) {
-        $reportedOutput = (& $toolCommand.Source --version 2>&1 | Out-String).Trim()
-        $reportedVersion = extract_version_token $reportedOutput
+    $toolInfo = inspect_tool $toolName
+    if ($toolInfo) {
         if (-not $minVersion) {
-            log "Program '$toolName' is available (reported: $reportedOutput)"
+            log "Program '$toolName' is available (reported: $($toolInfo.Output))"
             return
         }
-        if ($reportedVersion -and (version_ge $reportedVersion $minVersion)) {
-            log "Program '$toolName' meets minimum version $minVersion (reported: $reportedOutput)"
+        if ($toolInfo.Version -and (version_ge $toolInfo.Version $minVersion)) {
+            log "Program '$toolName' meets minimum version $minVersion (reported: $($toolInfo.Output))"
             return
         }
     }
 
-    log "Installing '$toolName' with pixi global install $pixiSelector"
+    log "Installing '$toolName' with pixi global install: $pixiSelector"
     run_pixi_global_install @($pixiSelector)
 
-    $toolCommand = Get-Command $toolName -ErrorAction SilentlyContinue
-    if (-not $toolCommand) {
+    $toolInfo = inspect_tool $toolName
+    if (-not $toolInfo) {
         fail "Program '$toolName' is still unavailable after pixi install."
     }
-    $reportedOutput = (& $toolCommand.Source --version 2>&1 | Out-String).Trim()
-    $reportedVersion = extract_version_token $reportedOutput
-    if ($minVersion -and ((-not $reportedVersion) -or (-not (version_ge $reportedVersion $minVersion)))) {
-        fail "Program '$toolName' is below minimum version $minVersion after pixi install (reported: $reportedOutput)."
+    if ($minVersion -and ((-not $toolInfo.Version) -or (-not (version_ge $toolInfo.Version $minVersion)))) {
+        fail "Program '$toolName' is below minimum version $minVersion after pixi install (reported: $($toolInfo.Output))."
     }
     if ($minVersion) {
-        log "Program '$toolName' meets minimum version $minVersion (reported: $reportedOutput)"
+        log "Program '$toolName' meets minimum version $minVersion (reported: $($toolInfo.Output))"
         return
     }
-    log "Program '$toolName' is available (reported: $reportedOutput)"
+    log "Program '$toolName' is available (reported: $($toolInfo.Output))"
 }
 
+# Build the stdout activation command for the current PowerShell session.
 function build_activation_command {
     $pixiHomeDir = resolve_pixi_home_dir
     $pixiBinDir = resolve_pixi_bin_dir $pixiHomeDir
     return "`$PixiBinDir = '$($pixiBinDir.Replace("'", "''"))'; if (-not ((`$Env:PATH -split ';') -contains `$PixiBinDir)) { `$Env:PATH = `"`$PixiBinDir;`$Env:PATH`" }"
 }
 
+# Tag the managed profile line so reruns can avoid duplicates.
 function build_profile_line {
     $activationCommand = build_activation_command
     return "$activationCommand $PROFILE_MARKER"
 }
 
+# Append the managed activation line to a profile when it is not already present.
 function write_profile_block {
     param([string]$profilePath)
 
@@ -239,8 +262,8 @@ function write_profile_block {
     log "Updated non-interactive profile $profilePath"
 }
 
+# Update the common PowerShell profiles used by non-interactive shells.
 function update_shell_profiles {
-    # Always manage the all-hosts profile, and also refresh the current host profile when present.
     $profilePaths = [System.Collections.Generic.List[string]]::new()
     $profilePaths.Add($PROFILE.CurrentUserAllHosts)
     if ((Test-Path $PROFILE.CurrentUserCurrentHost -PathType Leaf) -and ($PROFILE.CurrentUserCurrentHost -ne $PROFILE.CurrentUserAllHosts)) {
@@ -256,12 +279,14 @@ function update_shell_profiles {
     }
 }
 
+# Print the activation command that callers should invoke in the current shell.
 function print_activation {
     Write-Output (build_activation_command)
 }
 
 $TEMP_DIR = $null
 
+# Remove temporary installer files on exit.
 function cleanup {
     if ($TEMP_DIR -and (Test-Path $TEMP_DIR)) {
         Remove-Item -Recurse -Force $TEMP_DIR
@@ -280,6 +305,7 @@ try {
     update_shell_profiles
 
     if ($args.Count -gt 0) {
+        log "Installing additional packages with pixi global install: $($args -join ' ')"
         run_pixi_global_install $args
     }
     print_activation

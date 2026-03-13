@@ -4,8 +4,8 @@
 
 By default it ensures:
 
-- `python` with minimum version `3.10`
 - `pixi`
+- `python` with minimum version `3.10`
 - `uv` with minimum version `0.9.9`
 - `git`
 
