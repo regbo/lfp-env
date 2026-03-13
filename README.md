@@ -14,19 +14,19 @@ By default it ensures:
 ### macOS/Linux
 
 ```sh
-eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-env/v1.0.3/install.sh | sh)"
+eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-env/v1.0.4/install.sh | sh)"
 ```
 
 If `curl` is not available, `wget` works too:
 
 ```sh
-eval "$(wget -qO- https://raw.githubusercontent.com/regbo/lfp-env/v1.0.3/install.sh | sh)"
+eval "$(wget -qO- https://raw.githubusercontent.com/regbo/lfp-env/v1.0.4/install.sh | sh)"
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-& ([scriptblock]::Create((irm -useb https://raw.githubusercontent.com/regbo/lfp-env/v1.0.3/install.ps1))) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { Invoke-Expression $_ }
+& ([scriptblock]::Create((irm -useb https://raw.githubusercontent.com/regbo/lfp-env/v1.0.4/install.ps1))) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { Invoke-Expression $_ }
 ```
 
 The bootstrap scripts write status messages to stderr and print non-interactive PATH activation to stdout. They also refresh tagged non-interactive activation lines in profile files so later shells can pick up the same Pixi bin directory setup.
@@ -46,23 +46,9 @@ If the install succeeded, all four commands should work in the current shell.
 
 ## Install A Specific Version
 
-On macOS/Linux:
+The `main` branch README always points at `latest`.
 
-```sh
-eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-env/v1.0.3/install.sh | sh)"
-```
-
-With `wget`:
-
-```sh
-eval "$(wget -qO- https://raw.githubusercontent.com/regbo/lfp-env/v1.0.3/install.sh | sh)"
-```
-
-On Windows (PowerShell):
-
-```powershell
-& ([scriptblock]::Create((irm -useb https://raw.githubusercontent.com/regbo/lfp-env/v1.0.3/install.ps1))) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { Invoke-Expression $_ }
-```
+When you view this README from a release tag, the install URLs in that tagged README are rewritten to that exact tag so the commands stay pinned to the version you are viewing.
 
 ## Install Extra Tools
 
@@ -75,7 +61,7 @@ pixi global install ...
 For example, on macOS/Linux:
 
 ```sh
-eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-env/v1.0.3/install.sh | sh -s yq jq)"
+eval "$(curl -fsSL https://raw.githubusercontent.com/regbo/lfp-env/v1.0.4/install.sh | sh -s yq jq)"
 ```
 
 This installs `yq` and `jq`.
@@ -83,7 +69,7 @@ This installs `yq` and `jq`.
 On Windows (PowerShell):
 
 ```powershell
-& ([scriptblock]::Create((irm -useb https://raw.githubusercontent.com/regbo/lfp-env/v1.0.3/install.ps1))) yq | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { Invoke-Expression $_ }
+& ([scriptblock]::Create((irm -useb https://raw.githubusercontent.com/regbo/lfp-env/v1.0.4/install.ps1))) yq | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { Invoke-Expression $_ }
 ```
 
 This installs `yq`.
