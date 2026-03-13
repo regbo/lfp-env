@@ -100,6 +100,24 @@ run_install_without_home() {
     )
 }
 
+run_install_with_shell_only_home() {
+    working_dir="$1"
+    shell_home="$2"
+    stderr_path="$3"
+    stdout_path="$4"
+    shift 4
+    (
+        cd "$working_dir"
+        env -u HOME sh -c '
+            HOME="$1"
+            shift
+            PATH="$1" \
+            FAKE_PIXI_LOG="$2" \
+            sh "$3" "$@" >"$4" 2>"$5"
+        ' sh "$shell_home" "$FAKE_BIN:$ORIGINAL_PATH" "$TEMP_DIR/pixi-install.log" "$ROOT_DIR/install.sh" "$stdout_path" "$stderr_path" "$@"
+    )
+}
+
 build_activation_command() {
     home_dir="$1"
     pixi_bin_dir="$home_dir/.pixi/bin"
@@ -192,6 +210,20 @@ test_generated_home_is_exported() {
     assert_contains "$generated_home_dir/.profile" "$activation_command # lfp-env"
 }
 
+test_shell_only_home_is_ignored() {
+    test_root="$TEMP_DIR/shell-only-home"
+    working_dir="$test_root/workspace"
+    shell_home="$test_root/should-not-be-used"
+    mkdir -p "$working_dir"
+    : >"$TEMP_DIR/pixi-install.log"
+
+    run_install_with_shell_only_home "$working_dir" "$shell_home" "$test_root/run.err" "$test_root/run.out"
+
+    generated_home_dir="$(extract_generated_home_dir "$test_root/run.out")"
+    [ -n "$generated_home_dir" ] || fail "Expected generated HOME when HOME only exists as a shell variable"
+    [ "$generated_home_dir" != "$shell_home" ] || fail "Shell-only HOME should not be trusted"
+}
+
 ORIGINAL_PATH="${PATH:-}"
 FAKE_BIN="$TEMP_DIR/fake-bin"
 mkdir -p "$FAKE_BIN"
@@ -204,3 +236,4 @@ test_profile_updates_are_idempotent
 test_existing_activation_line_is_not_rewritten
 test_additional_args_are_globally_installed
 test_generated_home_is_exported
+test_shell_only_home_is_ignored

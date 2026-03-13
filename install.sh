@@ -8,6 +8,7 @@ PIXI_INSTALL_URL="https://pixi.sh/install.sh"
 PROFILE_MARKER="# lfp-env"
 TOOL_REPORTED_OUTPUT=""
 TOOL_REPORTED_VERSION=""
+EXPORTED_HOME=""
 GENERATED_HOME=""
 
 # Write routine installer activity to stderr.
@@ -39,7 +40,8 @@ ensure_writable_dir() {
 
 # Resolve HOME, falling back to generated writable directories for bare environments.
 resolve_home_dir() {
-    if [ -n "${HOME:-}" ]; then
+    if [ -n "$EXPORTED_HOME" ]; then
+        HOME="$EXPORTED_HOME"
         GENERATED_HOME=""
         return 0
     fi
@@ -284,6 +286,8 @@ update_shell_profiles() {
 print_activation() {
     printf '%s\n' "$(build_activation_command)"
 }
+
+EXPORTED_HOME="$(printenv HOME 2>/dev/null || true)"
 
 resolve_home_dir
 export HOME
